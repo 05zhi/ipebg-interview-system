@@ -1,0 +1,33 @@
+{
+  "name": "interview-system-backend",
+  "version": "1.0.0",
+  "description": "Backend for the global interview scheduling system",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "admin:reset-password": "node scripts/resetAdministratorPassword.js",
+    "test:integration": "node scripts/integration20.js",
+    "test:comprehensive": "node scripts/comprehensiveApi.js",
+    "test:frontend": "node scripts/frontendIntegrity.js"
+  },
+  "keywords": [
+    "interview",
+    "scheduling",
+    "express",
+    "supabase"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.57.4",
+    "bcrypt": "^6.0.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "jsonwebtoken": "^9.0.2"
+  },
+  "overrides": {
+    "uuid": "^11.1.1"
+  }
+}

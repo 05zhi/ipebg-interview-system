@@ -1,0 +1,31 @@
+const express = require('express');
+const managerController = require('../controllers/managerController');
+const candidateController = require('../controllers/candidateController');
+const { managerSlots, candidateSlots } = require('../controllers/availabilityController');
+const { authMiddleware, authorize } = require('../middleware/authMiddleware');
+const { findMatches } = require('../controllers/matchingController');
+const interviewController = require('../controllers/interviewController');
+const dashboardController = require('../controllers/dashboardController');
+const departmentController = require('../controllers/departmentController');
+
+const router = express.Router();
+router.use(authMiddleware, authorize('hr'));
+
+router.route('/managers').get(managerController.list).post(managerController.create);
+router.route('/managers/:id').get(managerController.get).patch(managerController.update).delete(managerController.remove);
+router.route('/managers/:id/slots').get(managerSlots.list).post(managerSlots.create);
+router.put('/managers/:id/slots/day', managerSlots.replaceDay);
+router.route('/managers/:id/slots/:slotId').patch(managerSlots.update).delete(managerSlots.remove);
+router.route('/candidates').get(candidateController.list).post(candidateController.create);
+router.route('/candidates/:id').get(candidateController.get).patch(candidateController.update).delete(candidateController.remove);
+router.route('/candidates/:id/slots').get(candidateSlots.list).post(candidateSlots.create);
+router.put('/candidates/:id/slots/day', candidateSlots.replaceDay);
+router.route('/candidates/:id/slots/:slotId').patch(candidateSlots.update).delete(candidateSlots.remove);
+router.post('/matches', findMatches);
+router.route('/interviews').get(interviewController.list).post(interviewController.create);
+router.route('/interviews/:id').get(interviewController.get).patch(interviewController.update).delete(interviewController.remove);
+router.get('/dashboard', dashboardController.summary);
+router.route('/departments').get(departmentController.list).post(departmentController.create);
+router.route('/departments/:id').patch(departmentController.update).delete(departmentController.remove);
+
+module.exports = router;
