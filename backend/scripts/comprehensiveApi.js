@@ -42,6 +42,10 @@ async function main() {
     const adminLogin = adminLoginResult.body;
     assert(adminLogin.role === 'administrator', 'administrator role missing'); assertions += 1;
     const adminToken = sessionCookie(adminLoginResult.response);
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      await api('/auth/login', { method: 'POST', expected: 401, body: JSON.stringify({ username: `${prefix}_brute`, password: 'wrong-password' }) });
+    }
+    await api('/auth/login', { method: 'POST', expected: 429, body: JSON.stringify({ username: `${prefix}_brute`, password: 'wrong-password' }) });
     await api('/auth/me', { token: adminToken });
     await api('/hr/departments', { token: adminToken, expected: 403 });
     await api('/admin/hr-accounts', { expected: 401 });
@@ -188,6 +192,7 @@ async function main() {
     assert(html.status === 200 && (await html.text()).includes('Global Interview Scheduling System'), 'HR HTML not served'); assertions += 1;
     const security = await fetch(`${origin}/api/health`);
     assert(security.headers.get('x-content-type-options') === 'nosniff' && security.headers.get('x-frame-options') === 'DENY', 'security headers missing'); assertions += 1;
+    assert(security.headers.get('content-security-policy')?.includes("default-src 'self'") && !security.headers.has('x-powered-by'), 'Helmet CSP or fingerprint protection missing'); assertions += 1;
     await api('/does-not-exist', { expected: 404 });
     const malformed = await fetch(`${origin}/api/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{bad json' });
     assert(malformed.status === 400, `malformed JSON returned ${malformed.status} instead of 400`); assertions += 1;

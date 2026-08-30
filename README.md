@@ -44,6 +44,9 @@ JWT_SECRET=至少-32-字元的隨機長字串
 JWT_EXPIRES_IN=8h
 AUTH_COOKIE_NAME=interview_session
 CORS_ORIGIN=http://localhost:3000
+TRUST_PROXY=
+API_RATE_LIMIT=600
+LOGIN_RATE_LIMIT=5
 ENABLE_INTERVIEW_ARCHIVE=false
 INTERVIEW_ARCHIVE_AFTER_DAYS=90
 ```
@@ -111,7 +114,8 @@ npm run admin:reset-password
 
 ## 安全注意事項
 
-- 正式環境應設定限定來源的 CORS、HTTPS 與高強度 JWT Secret。
+- 正式環境應設定限定來源的 CORS、HTTPS 與高強度 JWT Secret；若部署平台位於單層反向代理後，設定 `TRUST_PROXY=1`。
+- Helmet 會設定 CSP 與安全標頭；API 與登入端點分別套用一般限流及 IP＋帳號失敗限流。
 - Neon connection string 或遷移期間的 Supabase Service Role Key 外洩時必須立即輪替。
 - 上線前執行 `npm audit`，並以不同帳號驗證 Administrator／HR 權限隔離。
 - 正式資料庫執行 Migration 前必須建立備份。

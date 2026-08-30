@@ -7,6 +7,7 @@ const authRoutes = require('./routes/auth');
 const adminRoutes = require('./routes/admin');
 const hrRoutes = require('./routes/hr');
 const { query, isConfigured } = require('./config/database');
+const { securityHeaders, apiLimiter, loginLimiter, configureTrustProxy } = require('./middleware/securityMiddleware');
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -16,7 +17,9 @@ const interviewArchiveEnabled = String(process.env.ENABLE_INTERVIEW_ARCHIVE || '
 const configuredArchiveDays = Number(process.env.INTERVIEW_ARCHIVE_AFTER_DAYS || 90);
 const interviewArchiveAfterDays = Number.isFinite(configuredArchiveDays) && configuredArchiveDays >= 1 ? configuredArchiveDays : 90;
 
+configureTrustProxy(app);
 app.disable('x-powered-by');
+app.use(securityHeaders);
 app.use(cors({
   origin(origin, callback) {
     if (!origin || !allowedOrigins.length || allowedOrigins.includes(origin)) return callback(null, true);
@@ -25,12 +28,6 @@ app.use(cors({
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   credentials: true,
 }));
-app.use((_req, res, next) => {
-  res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('X-Frame-Options', 'DENY');
-  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
-  next();
-});
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 app.use(cookieParser());
@@ -39,6 +36,8 @@ app.use(express.static(frontendPath));
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', service: 'interview-system', database: isConfigured ? 'configured' : 'not-configured' });
 });
+app.use('/api', apiLimiter);
+app.use('/api/auth/login', loginLimiter);
 app.use('/api/auth', authRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/hr', hrRoutes);
