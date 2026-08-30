@@ -1,5 +1,5 @@
 const profile = JSON.parse(localStorage.getItem('interview_profile') || 'null');
-if (!localStorage.getItem('interview_token') || !profile || profile.role !== 'hr') location.replace('../login.html');
+if (!profile || profile.role !== 'hr') location.replace('../login.html');
 
 const zones = [
   ['台灣、台北 Taipei，高雄 Kaohsiung', 'Asia/Taipei'], ['中國、北京 Beijing，上海 Shanghai，重慶 Chongqing', 'Asia/Shanghai'], ['印度、新德里 New Delhi，孟買 Mumbai，加爾各答 Kolkata', 'Asia/Kolkata'], ['印尼、雅加達 Jakarta，萬隆 Bandung', 'Asia/Jakarta'], ['美國、芝加哥 Chicago，休士頓 Houston，達拉斯 Dallas', 'America/Chicago'], ['美國、洛杉磯 Los Angeles，舊金山 San Francisco，西雅圖 Seattle', 'America/Los_Angeles'], ['美國、紐約 New York，華盛頓 Washington，邁阿密 Miami', 'America/New_York'], ['墨西哥、墨西哥城 Mexico City，瓜達拉哈拉 Guadalajara', 'America/Mexico_City'], ['越南、胡志明市 Ho Chi Minh City，河內 Hanoi', 'Asia/Ho_Chi_Minh'], ['馬來西亞、吉隆坡 Kuala Lumpur，檳城 Penang', 'Asia/Kuala_Lumpur'], ['新加坡 Singapore', 'Asia/Singapore'], ['日本、東京 Tokyo', 'Asia/Tokyo'], ['英國、倫敦 London，曼徹斯特 Manchester', 'Europe/London'], ['捷克、布拉格 Prague', 'Europe/Prague'], ['匈牙利、布達佩斯 Budapest', 'Europe/Budapest'], ['澳洲、雪梨 Sydney，坎培拉 Canberra', 'Australia/Sydney'], ['UTC', 'UTC'],
@@ -27,13 +27,19 @@ function renderUserName(name) {
   document.querySelector('.sidebar-profile-avatar').textContent = userName.slice(0, 1).toUpperCase();
 }
 renderUserName();
-fetch('/api/auth/me', { headers: { Authorization: `Bearer ${localStorage.getItem('interview_token')}` } })
-  .then((response) => response.ok ? response.json() : null)
+fetch('/api/auth/me', { credentials: 'same-origin' })
+  .then((response) => {
+    if (!response.ok) { localStorage.removeItem('interview_profile'); location.replace('../login.html'); return null; }
+    return response.json();
+  })
   .then((data) => {
     if (!data) return;
     renderUserName(data.profile?.name || data.user?.username);
     localStorage.setItem('interview_profile', JSON.stringify({ ...profile, username: data.user?.username || profile?.username, full_name: data.profile?.name || profile?.full_name, email: data.profile?.email || profile?.email }));
   })
   .catch(() => {});
-document.querySelector('#logout').addEventListener('click', () => { localStorage.removeItem('interview_token'); localStorage.removeItem('interview_profile'); location.href = '../login.html'; });
+document.querySelector('#logout').addEventListener('click', async () => {
+  try { await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' }); }
+  finally { localStorage.removeItem('interview_profile'); location.href = '../login.html'; }
+});
 render();

@@ -11,7 +11,7 @@
 - 自動尋找候選人與所有指定主管的共同空檔
 - 建立、搜尋、篩選、修改及刪除面試
 - Dashboard 顯示今日、本週面試數及人員統計
-- bcrypt 密碼雜湊與 JWT Authentication
+- bcrypt 密碼雜湊與可撤銷的 HttpOnly JWT Session
 - Bootstrap 5 響應式企業管理介面
 
 ## 專案結構
@@ -21,7 +21,7 @@ frontend/                 HTML、CSS 與瀏覽器端 JavaScript
 backend/                  Node.js / Express API
   config/                 Neon PostgreSQL connection pool
   controllers/            API 業務邏輯
-  middleware/             JWT 與角色權限
+  middleware/             JWT Session 與角色權限
   routes/                 REST API 路由
   services/               驗證與時段媒合演算法
 database/
@@ -42,6 +42,7 @@ DATABASE_URL_DIRECT=Neon-direct-connection-string
 DB_POOL_MAX=1
 JWT_SECRET=至少-32-字元的隨機長字串
 JWT_EXPIRES_IN=8h
+AUTH_COOKIE_NAME=interview_session
 CORS_ORIGIN=http://localhost:3000
 ENABLE_INTERVIEW_ARCHIVE=false
 INTERVIEW_ARCHIVE_AFTER_DAYS=90
@@ -86,7 +87,7 @@ npm run admin:reset-password
 
 ## REST API
 
-所有 HR 與 Administrator API 都需要 `Authorization: Bearer <token>`。
+所有 HR 與 Administrator API 都需要同源的 HttpOnly Session Cookie；JWT 不會儲存在瀏覽器 `localStorage`。
 
 - `POST /api/auth/login`
 - `GET /api/auth/me`

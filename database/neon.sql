@@ -21,6 +21,14 @@ create table public.users (
   constraint users_password_hash_not_blank check (length(trim(password_hash)) > 0)
 );
 
+create table public.auth_sessions (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.users(id) on update cascade on delete cascade,
+  expires_at timestamptz not null,
+  revoked_at timestamptz,
+  created_at timestamptz not null default now()
+);
+
 create table public.hr_accounts (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null unique references public.users(id) on update cascade on delete cascade,
@@ -133,6 +141,7 @@ create table public.interview_managers (
 );
 
 create index users_role_active_idx on public.users (role, is_active);
+create index auth_sessions_user_active_idx on public.auth_sessions (user_id, expires_at desc) where revoked_at is null;
 create index hr_accounts_name_idx on public.hr_accounts (lower(name));
 create index departments_active_name_idx on public.departments (is_active, lower(name));
 create index managers_active_name_idx on public.managers (is_active, lower(name));

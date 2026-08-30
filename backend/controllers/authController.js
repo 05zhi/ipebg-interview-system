@@ -1,6 +1,8 @@
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
+const { randomUUID } = require('crypto');
 const { query, transaction, isConfigured } = require('../config/database');
+const { tokenFromRequest, setSessionCookie, clearSessionCookie } = require('../config/session');
 
 function configurationReady(res) {
   if (!isConfigured) { res.status(503).json({ message: 'Neon 尚未設定完成。' }); return false; }
@@ -17,8 +19,13 @@ async function login(req, res, next) {
     if (!user || !validPassword) return res.status(401).json({ message: '帳號或密碼錯誤。' });
     if (!user.is_active) return res.status(403).json({ message: '此帳號已停用，請聯絡管理員。' });
     if (!['administrator', 'hr'].includes(user.role)) return res.status(403).json({ message: '此帳號沒有系統登入權限。' });
-    const token = jwt.sign({ sub: user.id, role: user.role }, process.env.JWT_SECRET, { expiresIn: process.env.JWT_EXPIRES_IN || '8h', issuer: 'global-interview-system' });
-    res.json({ token, role: user.role, user: { id: user.id, username: user.username, role: user.role } });
+    const sessionId = randomUUID();
+    const token = jwt.sign({ sub: user.id, role: user.role, sid: sessionId }, process.env.JWT_SECRET,
+      { expiresIn: process.env.JWT_EXPIRES_IN || '8h', issuer: 'global-interview-system' });
+    const expiresAt = new Date(jwt.decode(token).exp * 1000).toISOString();
+    await query('insert into public.auth_sessions (id, user_id, expires_at) values ($1, $2, $3)', [sessionId, user.id, expiresAt]);
+    setSessionCookie(res, token);
+    res.json({ role: user.role, user: { id: user.id, username: user.username, role: user.role } });
   } catch (error) { next(error); }
 }
 async function me(req, res, next) {
@@ -36,7 +43,11 @@ async function changePassword(req, res, next) {
     const user = (await query('select password_hash from public.users where id = $1', [req.user.id])).rows[0];
     if (!await bcrypt.compare(currentPassword, user.password_hash)) return res.status(400).json({ message: '目前密碼不正確。' });
     const passwordHash = await bcrypt.hash(newPassword, 12);
-    await query('update public.users set password_hash = $1 where id = $2', [passwordHash, req.user.id]);
+    await transaction(async (client) => {
+      await client.query('update public.users set password_hash = $1 where id = $2', [passwordHash, req.user.id]);
+      await client.query('update public.auth_sessions set revoked_at = now() where user_id = $1 and revoked_at is null', [req.user.id]);
+    });
+    clearSessionCookie(res);
     res.status(204).end();
   } catch (error) { next(error); }
 }
@@ -60,5 +71,17 @@ async function updateProfile(req, res, next) {
     next(error);
   }
 }
-function logout(_req, res) { res.status(204).end(); }
+async function logout(req, res, next) {
+  try {
+    const token = tokenFromRequest(req);
+    if (token) {
+      try {
+        const payload = jwt.verify(token, process.env.JWT_SECRET, { issuer: 'global-interview-system' });
+        if (payload.sid) await query('update public.auth_sessions set revoked_at = now() where id = $1 and user_id = $2', [payload.sid, payload.sub]);
+      } catch (_error) { /* Always clear an invalid or expired browser cookie. */ }
+    }
+    clearSessionCookie(res);
+    res.status(204).end();
+  } catch (error) { next(error); }
+}
 module.exports = { login, logout, me, changePassword, updateProfile };

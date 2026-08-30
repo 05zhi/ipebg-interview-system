@@ -40,6 +40,9 @@ async function update(req, res, next) {
       if (profileUpdate.clause) await client.query(`update public.hr_accounts set ${profileUpdate.clause} where id = $${profileUpdate.values.length + 1}`, [...profileUpdate.values, profile.id]);
       const userUpdate = updateClause(userChanges, ['username', 'is_active', 'password_hash']);
       if (userUpdate.clause) await client.query(`update public.users set ${userUpdate.clause} where id = $${userUpdate.values.length + 1}`, [...userUpdate.values, profile.user_id]);
+      if (userChanges.password_hash || userChanges.is_active === false) {
+        await client.query('update public.auth_sessions set revoked_at = now() where user_id = $1 and revoked_at is null', [profile.user_id]);
+      }
     });
     res.json({ account: await findAccount(profile.id) });
   } catch (error) { if (error.code === '23505') return res.status(409).json({ message: 'Username 已被使用。' }); next(error); }

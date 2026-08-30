@@ -14,7 +14,7 @@ async function main() {
 
   async function api(path, { token, expected = 200, ...options } = {}) {
     const response = await fetch(`${origin}/api${path}`, { ...options, headers: {
-      'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}), ...options.headers,
+      'Content-Type': 'application/json', ...(token ? { Cookie: token } : {}), ...options.headers,
     } });
     const text = await response.text();
     let body; try { body = text ? JSON.parse(text) : null; } catch { body = text; }
@@ -24,6 +24,13 @@ async function main() {
     return { body, response };
   }
 
+  function sessionCookie(response) {
+    const header = response.headers.get('set-cookie') || '';
+    assert(header.includes('interview_session=') && /HttpOnly/i.test(header) && /SameSite=Strict/i.test(header), 'secure session cookie missing');
+    assertions += 1;
+    return header.split(';')[0];
+  }
+
   try {
     const adminPassword = 'Admin-Test!2027';
     const admin = (await query(`insert into public.users (username, password_hash, role)
@@ -31,13 +38,14 @@ async function main() {
     ids.users.push(admin.id);
 
     await api('/auth/login', { method: 'POST', expected: 401, body: JSON.stringify({ username: `${prefix}_admin`, password: 'wrong-password' }) });
-    const adminLogin = (await api('/auth/login', { method: 'POST', body: JSON.stringify({ username: `${prefix}_admin`, password: adminPassword }) })).body;
+    const adminLoginResult = await api('/auth/login', { method: 'POST', body: JSON.stringify({ username: `${prefix}_admin`, password: adminPassword }) });
+    const adminLogin = adminLoginResult.body;
     assert(adminLogin.role === 'administrator', 'administrator role missing'); assertions += 1;
-    const adminToken = adminLogin.token;
+    const adminToken = sessionCookie(adminLoginResult.response);
     await api('/auth/me', { token: adminToken });
     await api('/hr/departments', { token: adminToken, expected: 403 });
     await api('/admin/hr-accounts', { expected: 401 });
-    await api('/admin/hr-accounts', { token: 'invalid.jwt.value', expected: 401 });
+    await api('/admin/hr-accounts', { token: 'interview_session=invalid.jwt.value', expected: 401 });
     await api('/admin/hr-accounts/not-a-uuid', { token: adminToken, method: 'PATCH', expected: 400, body: '{}' });
     await api('/admin/hr-accounts', { token: adminToken, method: 'POST', expected: 400, body: JSON.stringify({ username: 'x', password: 'short', name: '' }) });
 
@@ -53,8 +61,9 @@ async function main() {
     assert(accountList.some((item) => item.id === createdAccount.id), 'created HR absent from list'); assertions += 1;
     await api(`/admin/hr-accounts/${createdAccount.id}`, { token: adminToken, method: 'PATCH', body: JSON.stringify({ name: 'Updated Test HR' }) });
 
-    let hrLogin = (await api('/auth/login', { method: 'POST', body: JSON.stringify({ username: `${prefix}_hr`, password: hrPassword }) })).body;
-    let hrToken = hrLogin.token;
+    let hrLoginResult = await api('/auth/login', { method: 'POST', body: JSON.stringify({ username: `${prefix}_hr`, password: hrPassword }) });
+    let hrLogin = hrLoginResult.body;
+    let hrToken = sessionCookie(hrLoginResult.response);
     await api('/admin/hr-accounts', { token: hrToken, expected: 403 });
     const me = (await api('/auth/me', { token: hrToken })).body;
     assert(me.profile.name === 'Updated Test HR', 'updated HR profile not returned'); assertions += 1;
@@ -169,9 +178,11 @@ async function main() {
     const newPassword = 'HR-New-Pass!2027';
     await api('/auth/password', { token: hrToken, method: 'PATCH', expected: 400, body: JSON.stringify({ currentPassword: 'wrong', newPassword }) });
     await api('/auth/password', { token: hrToken, method: 'PATCH', expected: 204, body: JSON.stringify({ currentPassword: hrPassword, newPassword }) });
+    await api('/auth/me', { token: hrToken, expected: 401 });
     await api('/auth/login', { method: 'POST', expected: 401, body: JSON.stringify({ username: `${prefix}_hr`, password: hrPassword }) });
-    hrLogin = (await api('/auth/login', { method: 'POST', body: JSON.stringify({ username: `${prefix}_hr`, password: newPassword }) })).body;
-    hrToken = hrLogin.token;
+    hrLoginResult = await api('/auth/login', { method: 'POST', body: JSON.stringify({ username: `${prefix}_hr`, password: newPassword }) });
+    hrLogin = hrLoginResult.body;
+    hrToken = sessionCookie(hrLoginResult.response);
 
     const html = await fetch(`${origin}/hr.html`);
     assert(html.status === 200 && (await html.text()).includes('Global Interview Scheduling System'), 'HR HTML not served'); assertions += 1;
@@ -194,6 +205,8 @@ async function main() {
     await api(`/hr/departments/${department.id}`, { token: hrToken, method: 'DELETE', expected: 204 });
     const inactiveDepartments = (await api('/hr/departments?includeInactive=true', { token: hrToken })).body.departments;
     assert(inactiveDepartments.find((item) => item.id === department.id)?.is_active === false, 'department was not deactivated'); assertions += 1;
+    await api('/auth/logout', { token: hrToken, method: 'POST', expected: 204 });
+    await api('/auth/me', { token: hrToken, expected: 401 });
     await api(`/admin/hr-accounts/${createdAccount.id}`, { token: adminToken, method: 'DELETE', expected: 204 });
     await api('/auth/login', { method: 'POST', expected: 401, body: JSON.stringify({ username: `${prefix}_hr`, password: newPassword }) });
 

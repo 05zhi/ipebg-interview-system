@@ -1,9 +1,11 @@
 const existingUser = API.profile();
-if (API.token() && existingUser && ['administrator', 'hr'].includes(existingUser.role)) {
-  location.href = API.homeFor(existingUser.role);
-} else if (API.token() || existingUser) {
-  localStorage.removeItem('interview_token');
-  localStorage.removeItem('interview_profile');
+if (existingUser && ['administrator', 'hr'].includes(existingUser.role)) {
+  fetch('/api/auth/me', { credentials: 'same-origin' }).then((response) => {
+    if (response.ok) location.href = API.homeFor(existingUser.role);
+    else API.clearSession();
+  }).catch(() => API.clearSession());
+} else if (existingUser) {
+  API.clearSession();
 }
 
 document.querySelector('#login-form').addEventListener('submit', async (event) => {
@@ -13,7 +15,6 @@ document.querySelector('#login-form').addEventListener('submit', async (event) =
   button.disabled = true; button.textContent = '登入中…'; message.className = 'alert d-none';
   try {
     const result = await API.request('/auth/login', { method: 'POST', body: JSON.stringify({ username: document.querySelector('#username').value.trim(), password: document.querySelector('#password').value }) });
-    localStorage.setItem('interview_token', result.token);
     localStorage.setItem('interview_profile', JSON.stringify(result.user));
     location.href = API.homeFor(result.role);
   } catch (error) {

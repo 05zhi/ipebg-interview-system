@@ -17,16 +17,16 @@ async function main() {
   const runId = `codex20_${Date.now()}`;
   let passed = 0;
 
-  async function request(path, { token, expected = 200, ...options } = {}) {
+  async function request(path, { token, expected = 200, withResponse = false, ...options } = {}) {
     const response = await fetch(`${base}${path}`, {
       ...options,
-      headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}), ...options.headers },
+      headers: { 'Content-Type': 'application/json', ...(token ? { Cookie: token } : {}), ...options.headers },
     });
     const text = await response.text();
     let body = null;
     try { body = text ? JSON.parse(text) : null; } catch { body = text; }
     check(response.status === expected, `${options.method || 'GET'} ${path}: expected ${expected}, got ${response.status} (${body?.message || text})`);
-    return body;
+    return withResponse ? { body, response } : body;
   }
 
   try {
@@ -45,9 +45,10 @@ async function main() {
         ids.users.push(user.id);
         await query('insert into public.hr_accounts (user_id, name, email) values ($1, $2, $3)', [user.id, `Test HR ${index + 1}`, `${tag}@example.test`]);
 
-        const login = await request('/auth/login', { method: 'POST', body: JSON.stringify({ username, password }) });
-        check(login.role === 'hr' && login.token, `dataset ${index + 1}: login payload invalid`);
-        const token = login.token;
+        const loginResult = await request('/auth/login', { method: 'POST', withResponse: true, body: JSON.stringify({ username, password }) });
+        const cookieHeader = loginResult.response.headers.get('set-cookie') || '';
+        check(loginResult.body.role === 'hr' && cookieHeader.includes('interview_session='), `dataset ${index + 1}: login payload invalid`);
+        const token = cookieHeader.split(';')[0];
         const me = await request('/auth/me', { token });
         check(me.profile?.name === `Test HR ${index + 1}`, `dataset ${index + 1}: profile mismatch`);
 

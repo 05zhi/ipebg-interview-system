@@ -45,6 +45,7 @@ async function main() {
   const hrHtml = fs.readFileSync(path.join(frontend, 'hr.html'), 'utf8');
   assert(/class=["'][^"']*sidebar-profile[^"']*["'][^>]*data-go=["']account["']/.test(hrHtml), 'hr.html: profile control must navigate to account settings'); assertions += 1;
   assert(!(apiSource.includes("dateStyle:") && apiSource.includes("timeZoneName:")), 'api.js: incompatible Intl dateStyle/timeZoneName combination'); assertions += 1;
+  assert(!apiSource.includes('interview_token') && apiSource.includes("credentials: 'same-origin'"), 'api.js: JWT must remain in an HttpOnly same-origin cookie'); assertions += 1;
   const formattedDate = new Intl.DateTimeFormat('zh-TW', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZoneName: 'short' }).format(new Date('2027-08-15T03:00:00.000Z'));
   assert(formattedDate.length > 0, 'date formatter failed'); assertions += 1;
 
