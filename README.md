@@ -19,13 +19,14 @@
 ```text
 frontend/                 HTML、CSS 與瀏覽器端 JavaScript
 backend/                  Node.js / Express API
-  config/                 Supabase server client
+  config/                 Neon PostgreSQL connection pool
   controllers/            API 業務邏輯
   middleware/             JWT 與角色權限
   routes/                 REST API 路由
   services/               驗證與時段媒合演算法
 database/
-  supabase.sql             全新資料庫完整 Schema
+  neon.sql                Neon 全新資料庫完整 Schema
+  supabase.sql            舊 Supabase Schema（僅供遷移參考）
   migrations/
     003_hr_system_rebuild.sql  舊版系統升級用 Migration
 ```
@@ -36,25 +37,29 @@ database/
 
 ```env
 PORT=3000
-SUPABASE_URL=https://你的專案代碼.supabase.co
-SUPABASE_SERVICE_ROLE_KEY=你的-service-role-key
+DATABASE_URL=Neon-pooled-connection-string
+DATABASE_URL_DIRECT=Neon-direct-connection-string
+DB_POOL_MAX=1
 JWT_SECRET=至少-32-字元的隨機長字串
 JWT_EXPIRES_IN=8h
+CORS_ORIGIN=http://localhost:3000
 ```
 
-`SUPABASE_SERVICE_ROLE_KEY` 只能放在後端環境變數，禁止放入前端或提交到 Git。
+連線字串只能放在後端環境變數，禁止放入前端或提交到 Git。此長駐 Express 服務優先使用
+`DATABASE_URL_DIRECT`；`DATABASE_URL` 保留作為 pooled endpoint fallback。
 
 ### 資料庫
 
-- 全新 Supabase 專案：在 SQL Editor 執行 `database/supabase.sql`。
-- 已安裝舊版面試系統：在 SQL Editor 執行 `database/migrations/003_hr_system_rebuild.sql`。
+- 全新 Neon 專案：執行 `npm run db:schema` 建立完整 Schema。
+- 從 Supabase 搬移既有資料：保留來源 `SUPABASE_URL` 與 `SUPABASE_SERVICE_ROLE_KEY`，確認 Neon 為空後執行 `npm run db:migrate:supabase`。
+- 搬移工具在單一 PostgreSQL transaction 中依外鍵順序寫入，失敗會 rollback，完成後逐表核對筆數。
 
-Migration 會移除舊版主管與求職者登入及舊排程資料，並把舊 `admin` 角色轉為 `administrator`。執行前請先備份正式資料。
+資料搬移會保留 UUID、帳號、bcrypt 密碼雜湊、建立時間與排程資料，因此現有人員不需要重設密碼。執行前仍應先備份來源資料庫。
 
 ### 啟動
 
 ```bash
-cd /c/Andy/mywebsite/05zhi.github.io/ipebg/interview-system/backend
+cd /c/Andy/iPEBG/interview-system/backend
 npm install
 npm start
 ```
@@ -100,6 +105,6 @@ npm run admin:reset-password
 ## 安全注意事項
 
 - 正式環境應設定限定來源的 CORS、HTTPS 與高強度 JWT Secret。
-- Service Role Key 外洩時必須立即在 Supabase 輪替。
+- Neon connection string 或遷移期間的 Supabase Service Role Key 外洩時必須立即輪替。
 - 上線前執行 `npm audit`，並以不同帳號驗證 Administrator／HR 權限隔離。
 - 正式資料庫執行 Migration 前必須建立備份。

@@ -1,6 +1,6 @@
 const bcrypt = require('bcrypt');
 const app = require('../server');
-const { supabase } = require('../config/supabase');
+const { query, pool } = require('../config/database');
 
 function assert(value, message) { if (!value) throw new Error(message); }
 
@@ -26,10 +26,9 @@ async function main() {
 
   try {
     const adminPassword = 'Admin-Test!2027';
-    const { data: admin, error: adminError } = await supabase.from('users').insert({
-      username: `${prefix}_admin`, password_hash: await bcrypt.hash(adminPassword, 4), role: 'administrator',
-    }).select('id').single();
-    if (adminError) throw adminError; ids.users.push(admin.id);
+    const admin = (await query(`insert into public.users (username, password_hash, role)
+      values ($1, $2, 'administrator') returning id`, [`${prefix}_admin`, await bcrypt.hash(adminPassword, 4)])).rows[0];
+    ids.users.push(admin.id);
 
     await api('/auth/login', { method: 'POST', expected: 401, body: JSON.stringify({ username: `${prefix}_admin`, password: 'wrong-password' }) });
     const adminLogin = (await api('/auth/login', { method: 'POST', body: JSON.stringify({ username: `${prefix}_admin`, password: adminPassword }) })).body;
@@ -200,12 +199,13 @@ async function main() {
 
     console.log(`SUCCESS: ${assertions} comprehensive API, validation, authorization, data and HTTP assertions passed.`);
   } finally {
-    if (ids.interviews.length) await supabase.from('interviews').delete().in('id', ids.interviews);
-    if (ids.candidates.length) await supabase.from('candidates').delete().in('id', ids.candidates);
-    if (ids.managers.length) await supabase.from('managers').delete().in('id', ids.managers);
-    if (ids.departments.length) await supabase.from('departments').delete().in('id', ids.departments);
-    if (ids.users.length) await supabase.from('users').delete().in('id', ids.users);
+    if (ids.interviews.length) await query('delete from public.interviews where id = any($1::uuid[])', [ids.interviews]);
+    if (ids.candidates.length) await query('delete from public.candidates where id = any($1::uuid[])', [ids.candidates]);
+    if (ids.managers.length) await query('delete from public.managers where id = any($1::uuid[])', [ids.managers]);
+    if (ids.departments.length) await query('delete from public.departments where id = any($1::uuid[])', [ids.departments]);
+    if (ids.users.length) await query('delete from public.users where id = any($1::uuid[])', [ids.users]);
     server.close();
+    if (pool) await pool.end();
   }
 }
 

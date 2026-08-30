@@ -1,4 +1,4 @@
-const { supabase } = require('../config/supabase');
+const { query, transaction } = require('../config/database');
 const { isUuid, isTimezone, parseTimeRange, databaseMessage, zonedLocalToIso } = require('../services/validation');
 
 const resources = {
@@ -14,20 +14,19 @@ function dateInTimezone(iso, timezone) {
 
 function handlers(type) {
   const resource = resources[type];
-  const findOwner = (id) => supabase.from(resource.ownerTable).select('id, is_active').eq('id', id).maybeSingle();
+  const findOwner = async (id, client) => (await query(`select id, is_active from public.${resource.ownerTable} where id = $1`, [id], client)).rows[0] || null;
 
   async function list(req, res, next) {
     try {
       if (!isUuid(req.params.id)) return res.status(400).json({ message: `${resource.label} ID 格式錯誤。` });
-      const { data: owner, error: ownerError } = await findOwner(req.params.id);
-      if (ownerError) throw ownerError;
+      const owner = await findOwner(req.params.id);
       if (!owner) return res.status(404).json({ message: `找不到${resource.label}。` });
-      let query = supabase.from(resource.slotTable).select('id, starts_at, ends_at, timezone, location, created_at').eq(resource.ownerKey, req.params.id).order('starts_at');
-      if (req.query.from) query = query.gte('ends_at', new Date(req.query.from).toISOString());
-      if (req.query.to) query = query.lte('starts_at', new Date(req.query.to).toISOString());
-      const { data, error } = await query;
-      if (error) throw error;
-      res.json({ slots: data });
+      const conditions = [`${resource.ownerKey} = $1`]; const values = [req.params.id];
+      if (req.query.from) { values.push(new Date(req.query.from).toISOString()); conditions.push(`ends_at >= $${values.length}`); }
+      if (req.query.to) { values.push(new Date(req.query.to).toISOString()); conditions.push(`starts_at <= $${values.length}`); }
+      const slots = (await query(`select id, starts_at, ends_at, timezone, location, created_at from public.${resource.slotTable}
+        where ${conditions.join(' and ')} order by starts_at`, values)).rows;
+      res.json({ slots });
     } catch (error) {
       if (error instanceof RangeError) return res.status(400).json({ message: '查詢日期格式錯誤。' });
       next(error);
@@ -43,19 +42,14 @@ function handlers(type) {
       if (!isTimezone(timezone)) return res.status(400).json({ message: '請選擇此時段所在地的有效 IANA 時區。' });
       const location = String(req.body.location || (timezone === 'Asia/Taipei' ? '台灣｜台北／新北／桃園' : timezone)).trim();
       if (!location) return res.status(400).json({ message: '請輸入所在地。' });
-      const { data: owner, error: ownerError } = await findOwner(req.params.id);
-      if (ownerError) throw ownerError;
+      const owner = await findOwner(req.params.id);
       if (!owner?.is_active) return res.status(404).json({ message: `找不到有效的${resource.label}。` });
-      const { data, error } = await supabase.from(resource.slotTable)
-        .insert({ [resource.ownerKey]: req.params.id, starts_at: range.startsAt, ends_at: range.endsAt, timezone, location })
-        .select('id, starts_at, ends_at, timezone, location, created_at').single();
-      if (error) {
-        const message = databaseMessage(error);
-        if (message) return res.status(409).json({ message });
-        throw error;
-      }
-      res.status(201).json({ slot: data });
-    } catch (error) { next(error); }
+      const slot = (await query(`insert into public.${resource.slotTable}
+        (${resource.ownerKey}, starts_at, ends_at, timezone, location) values ($1, $2, $3, $4, $5)
+        returning id, starts_at, ends_at, timezone, location, created_at`,
+        [req.params.id, range.startsAt, range.endsAt, timezone, location])).rows[0];
+      res.status(201).json({ slot });
+    } catch (error) { const message = databaseMessage(error); if (message) return res.status(409).json({ message }); next(error); }
   }
 
   async function update(req, res, next) {
@@ -67,27 +61,21 @@ function handlers(type) {
       if (!isTimezone(timezone)) return res.status(400).json({ message: '請選擇此時段所在地的有效 IANA 時區。' });
       const location = String(req.body.location || (timezone === 'Asia/Taipei' ? '台灣｜台北／新北／桃園' : timezone)).trim();
       if (!location) return res.status(400).json({ message: '請輸入所在地。' });
-      const { data, error } = await supabase.from(resource.slotTable)
-        .update({ starts_at: range.startsAt, ends_at: range.endsAt, timezone, location })
-        .eq('id', req.params.slotId).eq(resource.ownerKey, req.params.id)
-        .select('id, starts_at, ends_at, timezone, location, created_at').maybeSingle();
-      if (error) {
-        const message = databaseMessage(error);
-        if (message) return res.status(409).json({ message });
-        throw error;
-      }
-      if (!data) return res.status(404).json({ message: '找不到可用時段。' });
-      res.json({ slot: data });
-    } catch (error) { next(error); }
+      const slot = (await query(`update public.${resource.slotTable}
+        set starts_at = $1, ends_at = $2, timezone = $3, location = $4
+        where id = $5 and ${resource.ownerKey} = $6
+        returning id, starts_at, ends_at, timezone, location, created_at`,
+        [range.startsAt, range.endsAt, timezone, location, req.params.slotId, req.params.id])).rows[0];
+      if (!slot) return res.status(404).json({ message: '找不到可用時段。' });
+      res.json({ slot });
+    } catch (error) { const message = databaseMessage(error); if (message) return res.status(409).json({ message }); next(error); }
   }
 
   async function remove(req, res, next) {
     try {
       if (!isUuid(req.params.id) || !isUuid(req.params.slotId)) return res.status(400).json({ message: 'ID 格式錯誤。' });
-      const { data, error } = await supabase.from(resource.slotTable).delete()
-        .eq('id', req.params.slotId).eq(resource.ownerKey, req.params.id).select('id').maybeSingle();
-      if (error) throw error;
-      if (!data) return res.status(404).json({ message: '找不到可用時段。' });
+      const result = await query(`delete from public.${resource.slotTable} where id = $1 and ${resource.ownerKey} = $2 returning id`, [req.params.slotId, req.params.id]);
+      if (!result.rowCount) return res.status(404).json({ message: '找不到可用時段。' });
       res.status(204).end();
     } catch (error) { next(error); }
   }
@@ -101,8 +89,7 @@ function handlers(type) {
       const selectedTimes = [...new Set(Array.isArray(req.body.selectedTimes) ? req.body.selectedTimes.map(String) : [])].sort();
       if (!isTimezone(timezone) || !location || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ message: '日期、所在地或時區格式錯誤。' });
       if (selectedTimes.some((time) => !/^(?:[01]\d|2[0-3]):(?:00|30)$/.test(time))) return res.status(400).json({ message: '時段必須以每 30 分鐘為單位。' });
-      const { data: owner, error: ownerError } = await findOwner(req.params.id);
-      if (ownerError) throw ownerError;
+      const owner = await findOwner(req.params.id);
       if (!owner?.is_active) return res.status(404).json({ message: `找不到有效的${resource.label}。` });
       const dayStart = zonedLocalToIso(date, '00:00', timezone);
       const nextDate = new Date(`${date}T00:00:00Z`); nextDate.setUTCDate(nextDate.getUTCDate() + 1);
@@ -113,33 +100,36 @@ function handlers(type) {
         return startsAt ? { [resource.ownerKey]: req.params.id, starts_at: startsAt, ends_at: new Date(new Date(startsAt).getTime() + 30 * 60_000).toISOString(), timezone, location } : null;
       });
       if (rows.some((row) => !row)) return res.status(400).json({ message: '部分時間因夏令時間切換而不存在，請重新選擇。' });
-      if (type === 'manager') {
-        const { data: bookedInterviews, error: bookedError } = await supabase.from('interviews')
-          .select('starts_at, ends_at, interview_managers!inner(manager_id)')
-          .eq('interview_managers.manager_id', req.params.id).eq('status', 'scheduled')
-          .lt('starts_at', dayEnd).gt('ends_at', dayStart);
-        if (bookedError) throw bookedError;
-        const isStillAvailable = (startsAt, endsAt) => {
-          for (let time = new Date(startsAt).getTime(); time < new Date(endsAt).getTime(); time += 30 * 60_000) {
-            const next = new Date(time + 30 * 60_000).toISOString();
-            if (!rows.some((row) => new Date(row.starts_at) <= new Date(time) && new Date(row.ends_at) >= new Date(next))) return false;
+      await transaction(async (client) => {
+        if (type === 'manager') {
+          const bookedInterviews = (await client.query(`select i.starts_at, i.ends_at
+            from public.interviews i join public.interview_managers im on im.interview_id = i.id
+            where im.manager_id = $1 and i.status = 'scheduled' and i.starts_at < $2 and i.ends_at > $3`,
+            [req.params.id, dayEnd, dayStart])).rows;
+          const isStillAvailable = (startsAt, endsAt) => {
+            for (let time = new Date(startsAt).getTime(); time < new Date(endsAt).getTime(); time += 30 * 60_000) {
+              const next = new Date(time + 30 * 60_000).toISOString();
+              if (!rows.some((row) => new Date(row.starts_at) <= new Date(time) && new Date(row.ends_at) >= new Date(next))) return false;
+            }
+            return true;
+          };
+          if (bookedInterviews.some((interview) => !isStillAvailable(interview.starts_at, interview.ends_at))) {
+            const error = new Error('BOOKED_AVAILABILITY'); error.status = 409; throw error;
           }
-          return true;
-        };
-        if (bookedInterviews.some((interview) => !isStillAvailable(interview.starts_at, interview.ends_at))) {
-          return res.status(409).json({ message: '此日期含有已安排面試的時段；若要修改，請先將面試刪除。' });
         }
-      }
-      const { data: existingSlots, error: existingError } = await supabase.from(resource.slotTable).select('id, starts_at, timezone').eq(resource.ownerKey, req.params.id);
-      if (existingError) throw existingError;
-      const replacedIds = existingSlots.filter((slot) => dateInTimezone(slot.starts_at, slot.timezone) === date).map((slot) => slot.id);
-      if (replacedIds.length) { const { error: deleteError } = await supabase.from(resource.slotTable).delete().in('id', replacedIds); if (deleteError) throw deleteError; }
-      if (rows.length) {
-        const { error: insertError } = await supabase.from(resource.slotTable).insert(rows);
-        if (insertError) throw insertError;
-      }
+        const existingSlots = (await client.query(`select id, starts_at, timezone from public.${resource.slotTable} where ${resource.ownerKey} = $1 for update`, [req.params.id])).rows;
+        const replacedIds = existingSlots.filter((slot) => dateInTimezone(slot.starts_at, slot.timezone) === date).map((slot) => slot.id);
+        if (replacedIds.length) await client.query(`delete from public.${resource.slotTable} where id = any($1::uuid[])`, [replacedIds]);
+        for (const row of rows) {
+          await client.query(`insert into public.${resource.slotTable} (${resource.ownerKey}, starts_at, ends_at, timezone, location)
+            values ($1, $2, $3, $4, $5)`, [req.params.id, row.starts_at, row.ends_at, row.timezone, row.location]);
+        }
+      });
       res.json({ date, timezone, location, selectedTimes });
-    } catch (error) { next(error); }
+    } catch (error) {
+      if (error.message === 'BOOKED_AVAILABILITY') return res.status(409).json({ message: '此日期含有已安排面試的時段；若要修改，請先將面試刪除。' });
+      const message = databaseMessage(error); if (message) return res.status(409).json({ message }); next(error);
+    }
   }
 
   return { list, create, update, remove, replaceDay };

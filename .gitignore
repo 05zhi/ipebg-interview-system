@@ -1,3 +1,7 @@
 backend/node_modules/
 backend/.env
+.env
+.env.*
+!.env.example
+!backend/.env.example
 npm-debug.log*

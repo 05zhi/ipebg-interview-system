@@ -1,8 +1,24 @@
-const { supabase } = require('../config/supabase');
+const { query } = require('../config/database');
 const { isUuid, parseTimeRange } = require('../services/validation');
 
-const detailFields = 'id, starts_at, ends_at, status, notes, created_at, updated_at, candidate:candidates!candidate_id(id, name, email, phone, position, department:departments!department_id(id, name)), interview_managers(manager:managers!manager_id(id, name, email, department:departments!department_id(id, name)))';
+const detailSelect = `select i.id, i.starts_at, i.ends_at, i.status, i.notes, i.created_at, i.updated_at,
+  json_build_object('id', c.id, 'name', c.name, 'email', c.email, 'phone', c.phone, 'position', c.position,
+    'department', json_build_object('id', cd.id, 'name', cd.name)) as candidate,
+  coalesce(json_agg(json_build_object('manager', json_build_object('id', m.id, 'name', m.name, 'email', m.email,
+    'department', json_build_object('id', md.id, 'name', md.name))) order by m.name)
+    filter (where m.id is not null), '[]'::json) as interview_managers
+  from public.interviews i
+  join public.candidates c on c.id = i.candidate_id
+  join public.departments cd on cd.id = c.department_id
+  left join public.interview_managers im on im.interview_id = i.id
+  left join public.managers m on m.id = im.manager_id
+  left join public.departments md on md.id = m.department_id`;
 const statuses = ['scheduled', 'completed', 'cancelled'];
+
+async function selectInterviews(where = '', values = [], order = '') {
+  return (await query(`${detailSelect} ${where}
+    group by i.id, c.id, c.name, c.email, c.phone, c.position, cd.id, cd.name ${order}`, values)).rows;
+}
 
 function rpcMessage(error) {
   const text = String(error?.message || '');
@@ -25,13 +41,12 @@ function normalize(interview) {
 
 async function list(req, res, next) {
   try {
-    let query = supabase.from('interviews').select(detailFields).order('starts_at', { ascending: false });
-    if (req.query.status && statuses.includes(req.query.status)) query = query.eq('status', req.query.status);
-    if (req.query.from) query = query.gte('starts_at', new Date(req.query.from).toISOString());
-    if (req.query.to) query = query.lt('starts_at', new Date(req.query.to).toISOString());
-    if (req.query.candidateId && isUuid(req.query.candidateId)) query = query.eq('candidate_id', req.query.candidateId);
-    const { data, error } = await query;
-    if (error) throw error;
+    const conditions = []; const values = [];
+    if (req.query.status && statuses.includes(req.query.status)) { values.push(req.query.status); conditions.push(`i.status = $${values.length}`); }
+    if (req.query.from) { values.push(new Date(req.query.from).toISOString()); conditions.push(`i.starts_at >= $${values.length}`); }
+    if (req.query.to) { values.push(new Date(req.query.to).toISOString()); conditions.push(`i.starts_at < $${values.length}`); }
+    if (req.query.candidateId && isUuid(req.query.candidateId)) { values.push(req.query.candidateId); conditions.push(`i.candidate_id = $${values.length}`); }
+    const data = await selectInterviews(conditions.length ? `where ${conditions.join(' and ')}` : '', values, 'order by i.starts_at desc');
     const search = String(req.query.search || '').trim().toLocaleLowerCase();
     const interviews = data.map(normalize).filter((item) => !search || [item.candidate?.name, item.candidate?.department?.name,
       item.candidate?.position, item.notes, ...item.managers.flatMap((manager) => [manager.name, manager.department?.name])]
@@ -46,10 +61,9 @@ async function list(req, res, next) {
 async function get(req, res, next) {
   try {
     if (!isUuid(req.params.id)) return res.status(400).json({ message: '面試 ID 格式錯誤。' });
-    const { data, error } = await supabase.from('interviews').select(detailFields).eq('id', req.params.id).maybeSingle();
-    if (error) throw error;
-    if (!data) return res.status(404).json({ message: '找不到面試。' });
-    res.json({ interview: normalize(data) });
+    const interview = (await selectInterviews('where i.id = $1', [req.params.id]))[0];
+    if (!interview) return res.status(404).json({ message: '找不到面試。' });
+    res.json({ interview: normalize(interview) });
   } catch (error) { next(error); }
 }
 
@@ -65,28 +79,19 @@ async function save(req, res, next) {
     if (!managerIds.length || managerIds.some((id) => !isUuid(id))) return res.status(400).json({ message: '請至少選擇一位有效主管。' });
     if (range.error) return res.status(400).json({ message: range.error });
     if (!statuses.includes(status)) return res.status(400).json({ message: '面試狀態不正確。' });
-    const { data: id, error: rpcError } = await supabase.rpc('save_interview', {
-      p_interview_id: interviewId, p_candidate_id: candidateId, p_manager_ids: managerIds,
-      p_starts_at: range.startsAt, p_ends_at: range.endsAt, p_status: status,
-      p_notes: String(req.body.notes || '').trim(), p_created_by: req.user.id,
-    });
-    if (rpcError) {
-      const known = rpcMessage(rpcError);
-      if (known) return res.status(known.status).json({ message: known.message });
-      throw rpcError;
-    }
-    const { data, error } = await supabase.from('interviews').select(detailFields).eq('id', id).single();
-    if (error) throw error;
-    res.status(interviewId ? 200 : 201).json({ interview: normalize(data) });
-  } catch (error) { next(error); }
+    const id = (await query(`select public.save_interview($1::uuid, $2::uuid, $3::uuid[], $4::timestamptz,
+      $5::timestamptz, $6::public.interview_status, $7::text, $8::uuid) as id`,
+      [interviewId, candidateId, managerIds, range.startsAt, range.endsAt, status, String(req.body.notes || '').trim(), req.user.id])).rows[0].id;
+    const interview = (await selectInterviews('where i.id = $1', [id]))[0];
+    res.status(interviewId ? 200 : 201).json({ interview: normalize(interview) });
+  } catch (error) { const known = rpcMessage(error); if (known) return res.status(known.status).json({ message: known.message }); next(error); }
 }
 
 async function remove(req, res, next) {
   try {
     if (!isUuid(req.params.id)) return res.status(400).json({ message: '面試 ID 格式錯誤。' });
-    const { data, error } = await supabase.from('interviews').delete().eq('id', req.params.id).select('id').maybeSingle();
-    if (error) throw error;
-    if (!data) return res.status(404).json({ message: '找不到面試。' });
+    const result = await query('delete from public.interviews where id = $1 returning id', [req.params.id]);
+    if (!result.rowCount) return res.status(404).json({ message: '找不到面試。' });
     res.status(204).end();
   } catch (error) { next(error); }
 }

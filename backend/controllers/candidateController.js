@@ -1,7 +1,14 @@
-const { supabase } = require('../config/supabase');
+const { query } = require('../config/database');
 const { isUuid } = require('../services/validation');
+const { updateClause } = require('../services/sql');
 
-const fields = 'id, name, email, phone, position, notes, is_active, created_at, updated_at, department:departments!department_id(id, name)';
+const selectCandidate = `select c.id, c.name, c.email, c.phone, c.position, c.notes, c.is_active, c.created_at, c.updated_at,
+  json_build_object('id', d.id, 'name', d.name) as department
+  from public.candidates c join public.departments d on d.id = c.department_id`;
+
+async function findCandidate(id, client) {
+  return (await query(`${selectCandidate} where c.id = $1`, [id], client)).rows[0] || null;
+}
 
 function candidatePayload(body, partial = false) {
   const result = {};
@@ -26,23 +33,22 @@ function candidatePayload(body, partial = false) {
 
 async function list(req, res, next) {
   try {
-    let query = supabase.from('candidates').select(fields).order('name');
-    if (req.query.includeInactive !== 'true') query = query.eq('is_active', true);
-    if (req.query.search) query = query.ilike('name', `%${String(req.query.search).trim()}%`);
-    if (req.query.departmentId && isUuid(req.query.departmentId)) query = query.eq('department_id', req.query.departmentId);
-    const { data, error } = await query;
-    if (error) throw error;
-    res.json({ candidates: data });
+    const conditions = []; const values = [];
+    if (req.query.includeInactive !== 'true') conditions.push('c.is_active = true');
+    if (req.query.search) { values.push(`%${String(req.query.search).trim()}%`); conditions.push(`c.name ilike $${values.length}`); }
+    if (req.query.departmentId && isUuid(req.query.departmentId)) { values.push(req.query.departmentId); conditions.push(`c.department_id = $${values.length}`); }
+    const where = conditions.length ? `where ${conditions.join(' and ')}` : '';
+    const candidates = (await query(`${selectCandidate} ${where} order by c.name`, values)).rows;
+    res.json({ candidates });
   } catch (error) { next(error); }
 }
 
 async function get(req, res, next) {
   try {
     if (!isUuid(req.params.id)) return res.status(400).json({ message: '候選人 ID 格式錯誤。' });
-    const { data, error } = await supabase.from('candidates').select(fields).eq('id', req.params.id).maybeSingle();
-    if (error) throw error;
-    if (!data) return res.status(404).json({ message: '找不到候選人。' });
-    res.json({ candidate: data });
+    const candidate = await findCandidate(req.params.id);
+    if (!candidate) return res.status(404).json({ message: '找不到候選人。' });
+    res.json({ candidate });
   } catch (error) { next(error); }
 }
 
@@ -50,9 +56,10 @@ async function create(req, res, next) {
   try {
     const payload = candidatePayload(req.body);
     if (payload.error) return res.status(400).json({ message: payload.error });
-    const { data, error } = await supabase.from('candidates').insert({ ...payload.data, created_by: req.user.id }).select(fields).single();
-    if (error) throw error;
-    res.status(201).json({ candidate: data });
+    const result = await query(`insert into public.candidates (name, email, phone, position, department_id, notes, created_by)
+      values ($1, $2, $3, $4, $5, $6, $7) returning id`,
+      [payload.data.name, payload.data.email, payload.data.phone, payload.data.position, payload.data.department_id, payload.data.notes, req.user.id]);
+    res.status(201).json({ candidate: await findCandidate(result.rows[0].id) });
   } catch (error) { next(error); }
 }
 
@@ -62,19 +69,18 @@ async function update(req, res, next) {
     const payload = candidatePayload(req.body, true);
     if (payload.error) return res.status(400).json({ message: payload.error });
     if (!Object.keys(payload.data).length) return res.status(400).json({ message: '沒有可更新的欄位。' });
-    const { data, error } = await supabase.from('candidates').update(payload.data).eq('id', req.params.id).select(fields).maybeSingle();
-    if (error) throw error;
-    if (!data) return res.status(404).json({ message: '找不到候選人。' });
-    res.json({ candidate: data });
+    const update = updateClause(payload.data, ['name', 'email', 'phone', 'position', 'notes', 'is_active', 'department_id']);
+    const result = await query(`update public.candidates set ${update.clause} where id = $${update.values.length + 1} returning id`, [...update.values, req.params.id]);
+    if (!result.rowCount) return res.status(404).json({ message: '找不到候選人。' });
+    res.json({ candidate: await findCandidate(req.params.id) });
   } catch (error) { next(error); }
 }
 
 async function remove(req, res, next) {
   try {
     if (!isUuid(req.params.id)) return res.status(400).json({ message: '候選人 ID 格式錯誤。' });
-    const { data, error } = await supabase.from('candidates').update({ is_active: false }).eq('id', req.params.id).select('id').maybeSingle();
-    if (error) throw error;
-    if (!data) return res.status(404).json({ message: '找不到候選人。' });
+    const result = await query('update public.candidates set is_active = false where id = $1 returning id', [req.params.id]);
+    if (!result.rowCount) return res.status(404).json({ message: '找不到候選人。' });
     res.status(204).end();
   } catch (error) { next(error); }
 }

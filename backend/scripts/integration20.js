@@ -1,6 +1,6 @@
 const bcrypt = require('bcrypt');
 const app = require('../server');
-const { supabase } = require('../config/supabase');
+const { query, pool } = require('../config/database');
 
 const timezones = ['Asia/Taipei', 'Asia/Tokyo', 'Asia/Kolkata', 'Asia/Jakarta', 'Asia/Shanghai',
   'Asia/Singapore', 'America/Chicago', 'America/New_York', 'America/Los_Angeles', 'America/Mexico_City',
@@ -40,11 +40,10 @@ async function main() {
       const ids = { users: [], departments: [], managers: [], candidates: [], interviews: [] };
       try {
         const passwordHash = await bcrypt.hash(password, 4);
-        const { data: user, error: userError } = await supabase.from('users').insert({ username, password_hash: passwordHash, role: 'hr' }).select('id').single();
-        if (userError) throw userError;
+        const user = (await query(`insert into public.users (username, password_hash, role)
+          values ($1, $2, 'hr') returning id`, [username, passwordHash])).rows[0];
         ids.users.push(user.id);
-        const { error: profileError } = await supabase.from('hr_accounts').insert({ user_id: user.id, name: `Test HR ${index + 1}`, email: `${tag}@example.test` });
-        if (profileError) throw profileError;
+        await query('insert into public.hr_accounts (user_id, name, email) values ($1, $2, $3)', [user.id, `Test HR ${index + 1}`, `${tag}@example.test`]);
 
         const login = await request('/auth/login', { method: 'POST', body: JSON.stringify({ username, password }) });
         check(login.role === 'hr' && login.token, `dataset ${index + 1}: login payload invalid`);
@@ -105,16 +104,17 @@ async function main() {
         passed += 1;
         console.log(`PASS ${String(passed).padStart(2, '0')}/20  ${timezone}  ${durationMinutes} minutes`);
       } finally {
-        if (ids.interviews.length) await supabase.from('interviews').delete().in('id', ids.interviews);
-        if (ids.candidates.length) await supabase.from('candidates').delete().in('id', ids.candidates);
-        if (ids.managers.length) await supabase.from('managers').delete().in('id', ids.managers);
-        if (ids.departments.length) await supabase.from('departments').delete().in('id', ids.departments);
-        if (ids.users.length) await supabase.from('users').delete().in('id', ids.users);
+        if (ids.interviews.length) await query('delete from public.interviews where id = any($1::uuid[])', [ids.interviews]);
+        if (ids.candidates.length) await query('delete from public.candidates where id = any($1::uuid[])', [ids.candidates]);
+        if (ids.managers.length) await query('delete from public.managers where id = any($1::uuid[])', [ids.managers]);
+        if (ids.departments.length) await query('delete from public.departments where id = any($1::uuid[])', [ids.departments]);
+        if (ids.users.length) await query('delete from public.users where id = any($1::uuid[])', [ids.users]);
       }
     }
     console.log(`SUCCESS: ${passed} consecutive datasets passed without errors.`);
   } finally {
     server.close();
+    if (pool) await pool.end();
   }
 }
 

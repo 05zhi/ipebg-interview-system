@@ -1,12 +1,14 @@
 {
   "name": "interview-system-backend",
   "version": "1.0.0",
-  "description": "Backend for the global interview scheduling system",
+  "description": "Neon PostgreSQL backend for the global interview scheduling system",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
     "admin:reset-password": "node scripts/resetAdministratorPassword.js",
+    "db:schema": "node scripts/applySchema.js",
+    "db:migrate:supabase": "node scripts/migrateSupabaseToNeon.js",
     "test:integration": "node scripts/integration20.js",
     "test:comprehensive": "node scripts/comprehensiveApi.js",
     "test:frontend": "node scripts/frontendIntegrity.js"
@@ -15,7 +17,8 @@
     "interview",
     "scheduling",
     "express",
-    "supabase"
+    "neon",
+    "postgresql"
   ],
   "author": "",
   "license": "ISC",
@@ -25,7 +28,8 @@
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
-    "jsonwebtoken": "^9.0.2"
+    "jsonwebtoken": "^9.0.2",
+    "pg": "^8.23.0"
   },
   "overrides": {
     "uuid": "^11.1.1"

@@ -5,7 +5,7 @@ require('dotenv').config();
 const authRoutes = require('./routes/auth');
 const adminRoutes = require('./routes/admin');
 const hrRoutes = require('./routes/hr');
-const { supabase } = require('./config/supabase');
+const { query, transaction, isConfigured } = require('./config/database');
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -31,7 +31,6 @@ app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 app.use(express.static(frontendPath));
 
 app.get('/api/health', (_req, res) => {
-  const { isConfigured } = require('./config/supabase');
   res.json({ status: 'ok', service: 'interview-system', database: isConfigured ? 'configured' : 'not-configured' });
 });
 app.use('/api/auth', authRoutes);
@@ -49,36 +48,20 @@ app.use((error, _req, res, _next) => {
 app.get('*', (_req, res) => res.sendFile(path.join(frontendPath, 'index.html')));
 
 async function purgeExpiredCompletedInterviews() {
-  if (!supabase) return;
+  if (!isConfigured) return;
   const cutoff = new Date(Date.now() - 72 * 60 * 60 * 1000).toISOString();
-  const { data: expiredInterviews, error: findError } = await supabase
-    .from('interviews')
-    .select('id, candidate_id')
-    .eq('status', 'completed')
-    .lt('updated_at', cutoff);
-  if (findError) return console.error('Could not find completed interviews to purge:', findError.message);
-  if (!expiredInterviews.length) return;
-
-  const candidateIds = [...new Set(expiredInterviews.map((interview) => interview.candidate_id))];
-  const { error: deleteInterviewError } = await supabase
-    .from('interviews')
-    .delete()
-    .in('id', expiredInterviews.map((interview) => interview.id));
-  if (deleteInterviewError) return console.error('Could not purge completed interviews:', deleteInterviewError.message);
-
-  // A candidate may have another interview scheduled or retained for the same three-day period.
-  // Only remove the candidate once no interview record still refers to them.
-  const { data: remainingInterviews, error: remainingError } = await supabase
-    .from('interviews')
-    .select('candidate_id')
-    .in('candidate_id', candidateIds);
-  if (remainingError) return console.error('Could not check remaining candidate interviews:', remainingError.message);
-  const remainingCandidateIds = new Set(remainingInterviews.map((interview) => interview.candidate_id));
-  const removableCandidateIds = candidateIds.filter((id) => !remainingCandidateIds.has(id));
-  if (!removableCandidateIds.length) return;
-
-  const { error: deleteCandidateError } = await supabase.from('candidates').delete().in('id', removableCandidateIds);
-  if (deleteCandidateError) console.error('Could not purge completed interview candidates:', deleteCandidateError.message);
+  try {
+    await transaction(async (client) => {
+      const expiredInterviews = (await query(`select id, candidate_id from public.interviews
+        where status = 'completed' and updated_at < $1 for update`, [cutoff], client)).rows;
+      if (!expiredInterviews.length) return;
+      const candidateIds = [...new Set(expiredInterviews.map((interview) => interview.candidate_id))];
+      await query('delete from public.interviews where id = any($1::uuid[])', [expiredInterviews.map((interview) => interview.id)], client);
+      // Only remove candidates that are no longer referenced by another retained interview.
+      await query(`delete from public.candidates c where c.id = any($1::uuid[])
+        and not exists (select 1 from public.interviews i where i.candidate_id = c.id)`, [candidateIds], client);
+    });
+  } catch (error) { console.error('Could not purge completed interviews:', error.message); }
 }
 
 if (require.main === module) {
