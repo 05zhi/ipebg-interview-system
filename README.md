@@ -39,6 +39,9 @@ database/
 PORT=3000
 DATABASE_URL=Neon-pooled-connection-string
 DATABASE_URL_DIRECT=Neon-direct-connection-string
+DATABASE_URL_TEST=Neon-test-branch-connection-string
+# 若尚未建立 branch，可改用同專案的獨立資料庫：
+TEST_DATABASE_NAME=interview_system_test
 DB_POOL_MAX=1
 JWT_SECRET=至少-32-字元的隨機長字串
 JWT_EXPIRES_IN=8h
@@ -81,6 +84,18 @@ npm start
 ```bash
 npm run dev
 ```
+
+### 隔離測試
+
+```bash
+cd backend
+npm test
+```
+
+`npm test` 會先重建測試資料庫，再執行前端、完整 API 與 20 組跨時區整合測試。測試設定會比較
+`DATABASE_URL_TEST` 與正式連線；若指向同一個 endpoint/database，程式會立即中止。若尚未建立 Neon
+test branch，可設定 `TEST_DATABASE_NAME=interview_system_test` 使用同專案內的獨立資料庫。GitHub Actions
+則使用臨時 PostgreSQL service，不會接觸 Neon 正式資料。
 
 若需要用後端相同的 bcrypt 實作重設 Administrator 密碼：
 

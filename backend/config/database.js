@@ -1,8 +1,10 @@
 const { Pool } = require('pg');
 
-// This app is a long-running Express server. Prefer the stable direct endpoint;
-// retain DATABASE_URL as a fallback for deployments that intentionally use pooling.
-const connectionString = process.env.DATABASE_URL_DIRECT || process.env.DATABASE_URL;
+// Tests must use an explicitly isolated database. The test setup refuses a URL
+// that resolves to the same endpoint and database as production.
+const connectionString = process.env.NODE_ENV === 'test'
+  ? process.env.DATABASE_URL_TEST
+  : process.env.DATABASE_URL_DIRECT || process.env.DATABASE_URL;
 const pool = connectionString ? new Pool({
   connectionString,
   max: Number(process.env.DB_POOL_MAX || 1),

@@ -1,3 +1,4 @@
+require('./testSetup');
 const bcrypt = require('bcrypt');
 const app = require('../server');
 const { query, pool } = require('../config/database');

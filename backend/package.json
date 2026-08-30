@@ -9,6 +9,8 @@
     "admin:reset-password": "node scripts/resetAdministratorPassword.js",
     "db:schema": "node scripts/applySchema.js",
     "db:migrate:supabase": "node scripts/migrateSupabaseToNeon.js",
+    "test": "npm run test:prepare && npm run test:frontend && npm run test:comprehensive && npm run test:integration",
+    "test:prepare": "node scripts/resetTestDatabase.js",
     "test:integration": "node scripts/integration20.js",
     "test:comprehensive": "node scripts/comprehensiveApi.js",
     "test:frontend": "node scripts/frontendIntegrity.js"
