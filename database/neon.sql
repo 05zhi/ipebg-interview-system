@@ -114,6 +114,7 @@ create table public.interviews (
   ends_at timestamptz not null,
   status public.interview_status not null default 'scheduled',
   notes text not null default '',
+  archived_at timestamptz,
   created_by uuid references public.users(id) on delete set null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
@@ -142,6 +143,7 @@ create index candidates_department_position_idx on public.candidates (department
 create index candidate_slots_range_idx on public.candidate_available_slots (candidate_id, starts_at, ends_at);
 create index interviews_start_status_idx on public.interviews (starts_at, status);
 create index interviews_candidate_idx on public.interviews (candidate_id, starts_at desc);
+create index interviews_active_start_idx on public.interviews (starts_at desc) where archived_at is null;
 create index interview_managers_manager_idx on public.interview_managers (manager_id, interview_id);
 
 create or replace function public.set_updated_at()

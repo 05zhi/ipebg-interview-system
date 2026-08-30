@@ -5,12 +5,15 @@ require('dotenv').config();
 const authRoutes = require('./routes/auth');
 const adminRoutes = require('./routes/admin');
 const hrRoutes = require('./routes/hr');
-const { query, transaction, isConfigured } = require('./config/database');
+const { query, isConfigured } = require('./config/database');
 
 const app = express();
 const port = process.env.PORT || 3000;
 const frontendPath = path.join(__dirname, '..', 'frontend');
 const allowedOrigins = String(process.env.CORS_ORIGIN || '').split(',').map((origin) => origin.trim()).filter(Boolean);
+const interviewArchiveEnabled = String(process.env.ENABLE_INTERVIEW_ARCHIVE || '').toLowerCase() === 'true';
+const configuredArchiveDays = Number(process.env.INTERVIEW_ARCHIVE_AFTER_DAYS || 90);
+const interviewArchiveAfterDays = Number.isFinite(configuredArchiveDays) && configuredArchiveDays >= 1 ? configuredArchiveDays : 90;
 
 app.disable('x-powered-by');
 app.use(cors({
@@ -47,28 +50,25 @@ app.use((error, _req, res, _next) => {
 
 app.get('*', (_req, res) => res.sendFile(path.join(frontendPath, 'index.html')));
 
-async function purgeExpiredCompletedInterviews() {
+async function archiveExpiredCompletedInterviews() {
   if (!isConfigured) return;
-  const cutoff = new Date(Date.now() - 72 * 60 * 60 * 1000).toISOString();
+  const cutoff = new Date(Date.now() - interviewArchiveAfterDays * 24 * 60 * 60 * 1000).toISOString();
   try {
-    await transaction(async (client) => {
-      const expiredInterviews = (await query(`select id, candidate_id from public.interviews
-        where status = 'completed' and updated_at < $1 for update`, [cutoff], client)).rows;
-      if (!expiredInterviews.length) return;
-      const candidateIds = [...new Set(expiredInterviews.map((interview) => interview.candidate_id))];
-      await query('delete from public.interviews where id = any($1::uuid[])', [expiredInterviews.map((interview) => interview.id)], client);
-      // Only remove candidates that are no longer referenced by another retained interview.
-      await query(`delete from public.candidates c where c.id = any($1::uuid[])
-        and not exists (select 1 from public.interviews i where i.candidate_id = c.id)`, [candidateIds], client);
-    });
-  } catch (error) { console.error('Could not purge completed interviews:', error.message); }
+    const result = await query(`update public.interviews set archived_at = now()
+      where status = 'completed' and archived_at is null and updated_at < $1 returning id`, [cutoff]);
+    if (result.rowCount) console.log(`Archived ${result.rowCount} completed interview(s).`);
+  } catch (error) { console.error('Could not archive completed interviews:', error.message); }
 }
 
 if (require.main === module) {
   app.listen(port, () => {
     console.log(`Interview System running at http://localhost:${port}`);
-    purgeExpiredCompletedInterviews();
-    setInterval(purgeExpiredCompletedInterviews, 60 * 60 * 1000).unref();
+    if (interviewArchiveEnabled) {
+      archiveExpiredCompletedInterviews();
+      setInterval(archiveExpiredCompletedInterviews, 60 * 60 * 1000).unref();
+    } else {
+      console.log('Automatic interview archiving is disabled.');
+    }
   });
 }
 

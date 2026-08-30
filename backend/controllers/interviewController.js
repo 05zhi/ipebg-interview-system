@@ -1,7 +1,7 @@
 const { query } = require('../config/database');
 const { isUuid, parseTimeRange } = require('../services/validation');
 
-const detailSelect = `select i.id, i.starts_at, i.ends_at, i.status, i.notes, i.created_at, i.updated_at,
+const detailSelect = `select i.id, i.starts_at, i.ends_at, i.status, i.notes, i.archived_at, i.created_at, i.updated_at,
   json_build_object('id', c.id, 'name', c.name, 'email', c.email, 'phone', c.phone, 'position', c.position,
     'department', json_build_object('id', cd.id, 'name', cd.name)) as candidate,
   coalesce(json_agg(json_build_object('manager', json_build_object('id', m.id, 'name', m.name, 'email', m.email,
@@ -41,12 +41,12 @@ function normalize(interview) {
 
 async function list(req, res, next) {
   try {
-    const conditions = []; const values = [];
+    const conditions = [req.query.includeArchived === 'true' ? 'true' : 'i.archived_at is null']; const values = [];
     if (req.query.status && statuses.includes(req.query.status)) { values.push(req.query.status); conditions.push(`i.status = $${values.length}`); }
     if (req.query.from) { values.push(new Date(req.query.from).toISOString()); conditions.push(`i.starts_at >= $${values.length}`); }
     if (req.query.to) { values.push(new Date(req.query.to).toISOString()); conditions.push(`i.starts_at < $${values.length}`); }
     if (req.query.candidateId && isUuid(req.query.candidateId)) { values.push(req.query.candidateId); conditions.push(`i.candidate_id = $${values.length}`); }
-    const data = await selectInterviews(conditions.length ? `where ${conditions.join(' and ')}` : '', values, 'order by i.starts_at desc');
+    const data = await selectInterviews(`where ${conditions.join(' and ')}`, values, 'order by i.starts_at desc');
     const search = String(req.query.search || '').trim().toLocaleLowerCase();
     const interviews = data.map(normalize).filter((item) => !search || [item.candidate?.name, item.candidate?.department?.name,
       item.candidate?.position, item.notes, ...item.managers.flatMap((manager) => [manager.name, manager.department?.name])]
@@ -61,7 +61,7 @@ async function list(req, res, next) {
 async function get(req, res, next) {
   try {
     if (!isUuid(req.params.id)) return res.status(400).json({ message: '面試 ID 格式錯誤。' });
-    const interview = (await selectInterviews('where i.id = $1', [req.params.id]))[0];
+    const interview = (await selectInterviews('where i.id = $1 and i.archived_at is null', [req.params.id]))[0];
     if (!interview) return res.status(404).json({ message: '找不到面試。' });
     res.json({ interview: normalize(interview) });
   } catch (error) { next(error); }
@@ -82,7 +82,7 @@ async function save(req, res, next) {
     const id = (await query(`select public.save_interview($1::uuid, $2::uuid, $3::uuid[], $4::timestamptz,
       $5::timestamptz, $6::public.interview_status, $7::text, $8::uuid) as id`,
       [interviewId, candidateId, managerIds, range.startsAt, range.endsAt, status, String(req.body.notes || '').trim(), req.user.id])).rows[0].id;
-    const interview = (await selectInterviews('where i.id = $1', [id]))[0];
+    const interview = (await selectInterviews('where i.id = $1 and i.archived_at is null', [id]))[0];
     res.status(interviewId ? 200 : 201).json({ interview: normalize(interview) });
   } catch (error) { const known = rpcMessage(error); if (known) return res.status(known.status).json({ message: known.message }); next(error); }
 }

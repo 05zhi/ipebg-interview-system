@@ -43,6 +43,8 @@ DB_POOL_MAX=1
 JWT_SECRET=至少-32-字元的隨機長字串
 JWT_EXPIRES_IN=8h
 CORS_ORIGIN=http://localhost:3000
+ENABLE_INTERVIEW_ARCHIVE=false
+INTERVIEW_ARCHIVE_AFTER_DAYS=90
 ```
 
 連線字串只能放在後端環境變數，禁止放入前端或提交到 Git。此長駐 Express 服務優先使用
@@ -63,6 +65,10 @@ cd /c/Andy/iPEBG/interview-system/backend
 npm install
 npm start
 ```
+
+`npm start` 預設不會刪除或封存任何面試資料。若正式環境要自動封存已完成面試，請明確設定
+`ENABLE_INTERVIEW_ARCHIVE=true`，並以 `INTERVIEW_ARCHIVE_AFTER_DAYS` 指定保留天數；封存只會設定
+`archived_at`，不會刪除面試者或面試紀錄。
 
 開啟 <http://localhost:3000>。健康檢查網址為 <http://localhost:3000/api/health>。
 
