@@ -82,7 +82,6 @@ function showSection(name) {
   if (name === 'candidates') loadCandidates();
   if (name === 'matching') loadPeople();
   if (name === 'interviews') loadInterviews();
-  if (name === 'timezone') renderTimezoneConversion();
   if (name === 'account') loadProfile();
 }
 
@@ -490,7 +489,6 @@ document.addEventListener('change', (event) => {
   }
   else if (event.target.matches('#calendar-site-location')) { const site = IPEBG_TIMEZONES[Number(event.target.value)]; if (site) { document.querySelector('#calendar-day-timezone').value = site[1]; renderCalendarDay(); } }
   else if (event.target.matches('#calendar-day-timezone')) renderCalendarDay();
-  else if (event.target.matches('#timezone-source, #timezone-target, #timezone-local-time')) renderTimezoneConversion();
 });
 document.querySelector('#department-create-form').addEventListener('submit', async (event) => { event.preventDefault(); try { await API.request('/hr/departments', { method: 'POST', body: JSON.stringify({ name: value('#department-create-name') }) }); event.target.reset(); notify('部門已新增。'); loadDepartments(); } catch (error) { notify(error.message, 'danger'); } });
 document.querySelector('#department-edit-form').addEventListener('submit', async (event) => { event.preventDefault(); const id = value('#department-edit-id'); try { await API.request(`/hr/departments/${id}`, { method: 'PATCH', body: JSON.stringify({ name: value('#department-edit-name') }) }); modal('#department-edit-modal').hide(); notify('部門已更新。'); loadDepartments(); } catch (error) { notify(error.message, 'danger'); } });
@@ -522,23 +520,6 @@ function renderInterviews() {
   document.querySelector('#interview-range').textContent = `${state.interviews.length} 筆面試`;
 }
 
-function ensureTimezoneTool() {
-  const nav = document.querySelector('#section-nav');
-  if (!nav.querySelector('[href="/timezone/"]')) nav.insertAdjacentHTML('beforeend', '<a class="nav-link" href="/timezone/"><i class="bi bi-globe2 me-2"></i>時區換算</a>');
-}
-
-function renderTimezoneConversion() {
-  const source = document.querySelector('#timezone-source');
-  const target = document.querySelector('#timezone-target');
-  const localTime = document.querySelector('#timezone-local-time');
-  const result = document.querySelector('#timezone-result');
-  if (!source || !target || !localTime || !result || !localTime.value) return;
-  const [date, time] = localTime.value.split('T');
-  const iso = zonedLocalToIso(date, time, source.value);
-  const formatted = new Intl.DateTimeFormat('zh-TW', { timeZone: target.value, year: 'numeric', month: 'long', day: 'numeric', weekday: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(iso));
-  result.innerHTML = `<span>換算結果</span><strong>${API.escape(formatted)}</strong><small>${API.escape(target.value)}</small>`;
-}
-
 const renderCalendarDayBase = renderCalendarDay;
 renderCalendarDay = function renderCalendarDayWithInterviewLocks() {
   renderCalendarDayBase();
@@ -560,4 +541,4 @@ renderCalendarDay = function renderCalendarDayWithInterviewLocks() {
 };
 
 function updateTaiwanClock() { const clock = document.querySelector('#taiwan-now'); if (clock) clock.textContent = new Intl.DateTimeFormat('zh-TW', { timeZone: TAIWAN_TIMEZONE, month: '2-digit', day: '2-digit', weekday: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date()); }
-if (hrUser) { if (location.hash === '#timezone') location.replace('/timezone/'); else { document.querySelector('#edit-interview-status option[value="cancelled"]')?.remove(); const start = new Date(); const end = new Date(); end.setDate(end.getDate() + 30); setValue('#match-from', start.toISOString().slice(0, 10)); setValue('#match-to', end.toISOString().slice(0, 10)); setupInterviewCalendar(); ensureTimezoneTool(); updateTaiwanClock(); setInterval(updateTaiwanClock, 60_000); loadDepartments(); loadProfile(); showSection(currentAppView() || location.hash.slice(1) || 'dashboard'); } }
+if (hrUser) { if (location.hash === '#timezone') location.replace('/timezone/'); else { document.querySelector('#edit-interview-status option[value="cancelled"]')?.remove(); const start = new Date(); const end = new Date(); end.setDate(end.getDate() + 30); setValue('#match-from', start.toISOString().slice(0, 10)); setValue('#match-to', end.toISOString().slice(0, 10)); setupInterviewCalendar(); updateTaiwanClock(); setInterval(updateTaiwanClock, 60_000); loadDepartments(); loadProfile(); showSection(currentAppView() || location.hash.slice(1) || 'dashboard'); } }
