@@ -7,6 +7,7 @@
 - Administrator 建立、修改及刪除 HR 帳號
 - HR 統一管理部門，主管與候選人從部門選項中選擇
 - HR 管理主管、候選人及各自的多個可面試時段
+- HR 可產生 1–30 天有效的安全連結，讓主管或面試者自行填寫空檔；新連結會撤銷舊連結
 - 每筆可用時段各自使用 IANA Timezone，支援參與者旅行；實際時間統一以 UTC 儲存
 - 自動尋找候選人與所有指定主管的共同空檔
 - 建立、搜尋、篩選、修改及刪除面試
@@ -61,6 +62,7 @@ SMTP_SECURE=false
 SMTP_USER=
 SMTP_PASS=
 INTERVIEW_REMINDER_HOURS=24
+PUBLIC_BASE_URL=http://localhost:3000
 ```
 
 連線字串只能放在後端環境變數，禁止放入前端或提交到 Git。此長駐 Express 服務優先使用
@@ -90,6 +92,10 @@ Email 通知預設關閉。正式使用時填入公司 SMTP 設定並將 `EMAIL_
 邀請與 `.ics` 附件，服務每 15 分鐘檢查一次並於 `INTERVIEW_REMINDER_HOURS` 指定的時間範圍內寄送一次提醒。
 Teams／Google Meet 目前由 HR 貼上既有會議網址；若要由系統自動建立會議，仍需另外設定 Microsoft Graph 或
 Google Calendar OAuth 應用程式憑證。
+
+`PUBLIC_BASE_URL` 是安全空檔連結對外顯示的網站根網址。本機使用 `http://localhost:3000`；正式部署時需改成
+HTTPS 網址。系統只保存隨機 token 的 SHA-256 雜湊，原始 token 只在建立時回傳一次；有效期為 1–30 天，
+替同一人產生新連結時會自動撤銷仍有效的舊連結。
 
 開啟 <http://localhost:3000>。健康檢查網址為 <http://localhost:3000/api/health>。
 

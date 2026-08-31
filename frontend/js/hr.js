@@ -146,7 +146,7 @@ async function loadManagers() {
   catch (error) { notify(error.message, 'danger'); }
 }
 function renderManagers() {
-  document.querySelector('#manager-table').innerHTML = state.managers.map((item) => `<tr><td><div class="person-cell"><span class="avatar">${API.escape(item.name.slice(0, 1).toUpperCase())}</span><strong>${API.escape(item.name)}</strong></div></td><td><span class="department-tag">${API.escape(item.department?.name)}</span></td><td>${item.email ? `<a href="mailto:${API.escape(item.email)}">${API.escape(item.email)}</a>` : '<span class="text-muted-app">未提供</span>'}</td><td class="text-end text-nowrap action-cell"><button class="btn btn-sm btn-outline-secondary" data-manager-slots="${item.id}" title="管理主管每日所在城市與空閒時間"><i class="bi bi-calendar3 me-1"></i>空閒時間</button> <button class="btn btn-sm btn-outline-primary" data-edit-manager="${item.id}"><i class="bi bi-pencil me-1"></i>編輯</button> <button class="btn btn-sm btn-outline-danger" data-delete-manager="${item.id}"><i class="bi bi-trash me-1"></i>刪除</button></td></tr>`).join('') || empty(4, '尚未建立主管。');
+  document.querySelector('#manager-table').innerHTML = state.managers.map((item) => `<tr><td><div class="person-cell"><span class="avatar">${API.escape(item.name.slice(0, 1).toUpperCase())}</span><strong>${API.escape(item.name)}</strong></div></td><td><span class="department-tag">${API.escape(item.department?.name)}</span></td><td>${item.email ? `<a href="mailto:${API.escape(item.email)}">${API.escape(item.email)}</a>` : '<span class="text-muted-app">未提供</span>'}</td><td class="text-end text-nowrap action-cell"><button class="btn btn-sm btn-outline-secondary" data-manager-slots="${item.id}" title="管理主管每日所在城市與空閒時間"><i class="bi bi-calendar3 me-1"></i>空閒時間</button> <button class="btn btn-sm btn-outline-secondary" data-availability-link="manager" data-owner-id="${item.id}"><i class="bi bi-link-45deg me-1"></i>填寫連結</button> <button class="btn btn-sm btn-outline-primary" data-edit-manager="${item.id}"><i class="bi bi-pencil me-1"></i>編輯</button> <button class="btn btn-sm btn-outline-danger" data-delete-manager="${item.id}"><i class="bi bi-trash me-1"></i>刪除</button></td></tr>`).join('') || empty(4, '尚未建立主管。');
 }
 async function loadCandidates() {
   document.querySelector('#candidate-table').innerHTML = tableSkeleton(6);
@@ -184,7 +184,7 @@ function renderCandidates() {
       : interviewStatus === 'completed'
         ? '<span class="badge badge-available">已面試結束</span>'
         : '<span class="badge badge-muted">未安排</span>';
-    return `<tr><td><div class="person-cell"><span class="avatar">${API.escape(item.name.slice(0, 1).toUpperCase())}</span><strong>${API.escape(item.name)}</strong></div></td><td><strong>${API.escape(item.position)}</strong></td><td><span class="department-tag">${API.escape(item.department?.name)}</span></td><td>${contact}</td><td>${statusBadge}</td><td class="text-end text-nowrap action-cell"><button class="btn btn-sm btn-outline-secondary" data-candidate-slots="${item.id}" title="管理面試者可面試時間"><i class="bi bi-calendar3 me-1"></i>空閒時間</button> <button class="btn btn-sm btn-outline-primary" data-edit-candidate="${item.id}"><i class="bi bi-pencil me-1"></i>編輯</button> <button class="btn btn-sm btn-outline-danger" data-delete-candidate="${item.id}"><i class="bi bi-trash me-1"></i>刪除</button></td></tr>`;
+    return `<tr><td><div class="person-cell"><span class="avatar">${API.escape(item.name.slice(0, 1).toUpperCase())}</span><strong>${API.escape(item.name)}</strong></div></td><td><strong>${API.escape(item.position)}</strong></td><td><span class="department-tag">${API.escape(item.department?.name)}</span></td><td>${contact}</td><td>${statusBadge}</td><td class="text-end text-nowrap action-cell"><button class="btn btn-sm btn-outline-secondary" data-candidate-slots="${item.id}" title="管理面試者可面試時間"><i class="bi bi-calendar3 me-1"></i>空閒時間</button> <button class="btn btn-sm btn-outline-secondary" data-availability-link="candidate" data-owner-id="${item.id}"><i class="bi bi-link-45deg me-1"></i>填寫連結</button> <button class="btn btn-sm btn-outline-primary" data-edit-candidate="${item.id}"><i class="bi bi-pencil me-1"></i>編輯</button> <button class="btn btn-sm btn-outline-danger" data-delete-candidate="${item.id}"><i class="bi bi-trash me-1"></i>刪除</button></td></tr>`;
   }).join('') || empty(6, '尚未建立面試者。');
 }
 
@@ -414,6 +414,20 @@ document.addEventListener('click', async (event) => {
   const editCandidate = event.target.closest('[data-edit-candidate]'); if (editCandidate) return openCandidate(state.candidates.find((item) => item.id === editCandidate.dataset.editCandidate));
   const editDepartment = event.target.closest('[data-edit-department]'); if (editDepartment) return openDepartment(state.departments.find((item) => item.id === editDepartment.dataset.editDepartment));
   const deleteDepartment = event.target.closest('[data-delete-department]'); if (deleteDepartment && confirm('確定刪除此部門？此操作無法復原。若部門仍有主管或面試者使用，系統會拒絕刪除。')) { try { await API.request(`/hr/departments/${deleteDepartment.dataset.deleteDepartment}`, { method: 'DELETE' }); notify('部門已刪除。'); loadDepartments(); } catch (error) { notify(error.message, 'danger'); } return; }
+  const availabilityLink = event.target.closest('[data-availability-link]');
+  if (availabilityLink) {
+    const enteredDays = prompt('連結有效天數（1–30）。產生新連結會自動撤銷此人的舊連結。', '7');
+    if (enteredDays === null) return;
+    const expiresInDays = Number(enteredDays);
+    if (!Number.isInteger(expiresInDays) || expiresInDays < 1 || expiresInDays > 30) return notify('請輸入 1 到 30 的整數天數。', 'danger');
+    try {
+      const type = availabilityLink.dataset.availabilityLink; const ownerId = availabilityLink.dataset.ownerId;
+      const data = await API.request(`/hr/${type === 'manager' ? 'managers' : 'candidates'}/${ownerId}/availability-links`, { method: 'POST', body: JSON.stringify({ expiresInDays }) });
+      try { await navigator.clipboard.writeText(data.link.url); notify(`安全連結已複製，有效至 ${new Date(data.link.expires_at).toLocaleString('zh-TW')}。`); }
+      catch (_error) { prompt('請複製以下安全連結：', data.link.url); }
+    } catch (error) { notify(error.message, 'danger'); }
+    return;
+  }
   const managerSlots = event.target.closest('[data-manager-slots]'); if (managerSlots) return openAvailabilityCalendar('manager', state.managers.find((item) => item.id === managerSlots.dataset.managerSlots));
   const candidateSlots = event.target.closest('[data-candidate-slots]'); if (candidateSlots) return openAvailabilityCalendar('candidate', state.candidates.find((item) => item.id === candidateSlots.dataset.candidateSlots));
   const calendarDate = event.target.closest('[data-calendar-date]'); if (calendarDate) { state.availabilityContext.selectedDate = calendarDate.dataset.calendarDate; renderCalendarDay(); modal('#time-picker-modal').show(); return; }

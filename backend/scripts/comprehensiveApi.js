@@ -115,6 +115,23 @@ async function main() {
     assert(candidateSearch.some((item) => item.id === candidate.id), 'candidate search/filter failed'); assertions += 1;
     await api(`/hr/candidates/${candidate.id}`, { token: hrToken, method: 'PATCH', body: JSON.stringify({ phone: '+886911111111' }) });
 
+    await api(`/hr/candidates/${candidate.id}/availability-links`, { token: hrToken, method: 'POST', expected: 400, body: JSON.stringify({ expiresInDays: 31 }) });
+    const firstAvailabilityLink = (await api(`/hr/candidates/${candidate.id}/availability-links`, { token: hrToken, method: 'POST', expected: 201, body: JSON.stringify({ expiresInDays: 7 }) })).body.link;
+    const firstAvailabilityToken = new URL(firstAvailabilityLink.url).searchParams.get('token');
+    assert(firstAvailabilityToken?.length >= 40 && !JSON.stringify(firstAvailabilityLink).includes('token_hash'), 'secure availability token was missing or its hash leaked'); assertions += 1;
+    const publicAvailability = (await api(`/availability/${firstAvailabilityToken}`)).body;
+    assert(publicAvailability.subject.name === candidate.name && publicAvailability.subject.type === 'candidate', 'public availability link resolved the wrong subject'); assertions += 1;
+    await api(`/availability/${firstAvailabilityToken}/day`, { method: 'PUT', body: JSON.stringify({
+      date: '2027-10-01', timezone: 'Asia/Taipei', location: '台灣｜台北', selectedTimes: ['09:00', '09:30'],
+    }) });
+    const publicSlots = (await api(`/availability/${firstAvailabilityToken}`)).body.slots;
+    assert(publicSlots.some((slot) => slot.location === '台灣｜台北'), 'public availability link did not save slots'); assertions += 1;
+    const replacementLink = (await api(`/hr/candidates/${candidate.id}/availability-links`, { token: hrToken, method: 'POST', expected: 201, body: JSON.stringify({ expiresInDays: 3 }) })).body.link;
+    await api(`/availability/${firstAvailabilityToken}`, { expected: 404 });
+    const replacementToken = new URL(replacementLink.url).searchParams.get('token');
+    await api(`/availability/${replacementToken}`);
+    assertions += 2;
+
     const date = '2027-08-15'; const timezone = 'Asia/Taipei';
     const common = ['10:00', '10:30'];
     await api(`/hr/candidates/${candidate.id}/slots/day`, { token: hrToken, method: 'PUT', expected: 400, body: JSON.stringify({ date, timezone: 'Invalid/Zone', selectedTimes: common }) });
@@ -123,7 +140,7 @@ async function main() {
     await api(`/hr/managers/${managers[0].id}/slots/day`, { token: hrToken, method: 'PUT', body: JSON.stringify({ date, timezone, location: '台灣｜台北', selectedTimes: common }) });
     await api(`/hr/managers/${managers[1].id}/slots/day`, { token: hrToken, method: 'PUT', body: JSON.stringify({ date, timezone, location: '台灣｜桃園', selectedTimes: ['10:30'] }) });
     const candidateSlots = (await api(`/hr/candidates/${candidate.id}/slots`, { token: hrToken })).body.slots;
-    assert(candidateSlots.length === 2, 'candidate day replacement did not create two slots'); assertions += 1;
+    assert(candidateSlots.filter((slot) => slot.starts_at.startsWith('2027-08-15')).length === 2, 'candidate day replacement did not create two slots'); assertions += 1;
     await api(`/hr/candidates/${candidate.id}/slots`, { token: hrToken, method: 'POST', expected: 409, body: JSON.stringify({
       startsAt: candidateSlots[0].starts_at, endsAt: candidateSlots[0].ends_at, timezone,
     }) });

@@ -148,6 +148,23 @@ create table public.interview_notifications (
   unique (interview_id, recipient_email, notification_type)
 );
 
+create table public.availability_links (
+  id uuid primary key default gen_random_uuid(),
+  token_hash text not null unique,
+  subject_type text not null check (subject_type in ('manager', 'candidate')),
+  manager_id uuid references public.managers(id) on update cascade on delete cascade,
+  candidate_id uuid references public.candidates(id) on update cascade on delete cascade,
+  expires_at timestamptz not null,
+  revoked_at timestamptz,
+  last_used_at timestamptz,
+  created_by uuid references public.users(id) on delete set null,
+  created_at timestamptz not null default now(),
+  constraint availability_links_subject_valid check (
+    (subject_type = 'manager' and manager_id is not null and candidate_id is null) or
+    (subject_type = 'candidate' and candidate_id is not null and manager_id is null)
+  )
+);
+
 create table public.interview_managers (
   interview_id uuid not null references public.interviews(id) on update cascade on delete cascade,
   manager_id uuid not null references public.managers(id) on update cascade on delete restrict,
@@ -170,6 +187,7 @@ create index interviews_candidate_idx on public.interviews (candidate_id, starts
 create index interviews_active_start_idx on public.interviews (starts_at desc) where archived_at is null;
 create index interview_managers_manager_idx on public.interview_managers (manager_id, interview_id);
 create index interview_notifications_status_idx on public.interview_notifications (status, created_at desc);
+create index availability_links_active_idx on public.availability_links (expires_at) where revoked_at is null;
 
 create or replace function public.set_updated_at()
 returns trigger language plpgsql set search_path = public as $$

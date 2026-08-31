@@ -6,6 +6,7 @@ require('dotenv').config();
 const authRoutes = require('./routes/auth');
 const adminRoutes = require('./routes/admin');
 const hrRoutes = require('./routes/hr');
+const publicRoutes = require('./routes/public');
 const { query, isConfigured } = require('./config/database');
 const { securityHeaders, apiLimiter, loginLimiter, configureTrustProxy } = require('./middleware/securityMiddleware');
 const { sendDueReminders } = require('./services/notificationService');
@@ -38,6 +39,7 @@ app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', service: 'interview-system', database: isConfigured ? 'configured' : 'not-configured' });
 });
 app.use('/api', apiLimiter);
+app.use('/api', publicRoutes);
 app.use('/api/auth/login', loginLimiter);
 app.use('/api/auth', authRoutes);
 app.use('/api/admin', adminRoutes);

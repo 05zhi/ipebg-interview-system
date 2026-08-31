@@ -7,8 +7,8 @@ function assert(value, message) { if (!value) throw new Error(message); }
 
 async function main() {
   const frontend = path.resolve(__dirname, '..', '..', 'frontend');
-  const pages = ['index.html', 'login.html', 'admin.html', 'hr.html'];
-  const scriptPages = { 'login.js': 'login.html', 'admin.js': 'admin.html', 'hr.js': 'hr.html' };
+  const pages = ['index.html', 'login.html', 'admin.html', 'hr.html', 'availability/index.html'];
+  const scriptPages = { 'login.js': 'login.html', 'admin.js': 'admin.html', 'hr.js': 'hr.html', 'availability-public.js': 'availability/index.html' };
   let assertions = 0;
 
   for (const page of pages) {
@@ -24,7 +24,7 @@ async function main() {
     }
     for (const source of [...html.matchAll(/(?:src|href)=["']([^"'#?]+)(?:\?[^"']*)?["']/gi)].map((match) => match[1])) {
       if (/^(?:https?:|data:|mailto:|tel:)/i.test(source)) continue;
-      assert(fs.existsSync(path.resolve(frontend, source)), `${page}: missing local asset ${source}`); assertions += 1;
+      assert(fs.existsSync(path.resolve(path.dirname(path.join(frontend, page)), source)), `${page}: missing local asset ${source}`); assertions += 1;
     }
   }
 
@@ -54,7 +54,7 @@ async function main() {
   await new Promise((resolve) => server.once('listening', resolve));
   try {
     const origin = `http://127.0.0.1:${server.address().port}`;
-    for (const resource of [...pages.map((page) => `/${page}`), '/css/style.css', '/js/api.js', '/js/login.js', '/js/admin.js', '/js/hr.js']) {
+    for (const resource of [...pages.map((page) => `/${page}`), '/css/style.css', '/js/api.js', '/js/login.js', '/js/admin.js', '/js/hr.js', '/js/availability-public.js']) {
       const response = await fetch(`${origin}${resource}`);
       assert(response.status === 200, `${resource}: HTTP ${response.status}`); assertions += 1;
       assert((await response.text()).length > 20, `${resource}: empty response`); assertions += 1;
