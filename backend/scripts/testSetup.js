@@ -27,5 +27,6 @@ if (productionUrls.some((url) => identity(url) === identity(testUrl))) {
 
 process.env.NODE_ENV = 'test';
 process.env.DATABASE_URL_TEST = testUrl;
+process.env.EMAIL_TRANSPORT = process.env.EMAIL_TRANSPORT || 'json';
 
 module.exports = { testUrl, identity };

@@ -24,6 +24,7 @@ router.route('/candidates/:id/slots/:slotId').patch(candidateSlots.update).delet
 router.post('/matches', findMatches);
 router.route('/interviews').get(interviewController.list).post(interviewController.create);
 router.route('/interviews/:id').get(interviewController.get).patch(interviewController.update).delete(interviewController.remove);
+router.post('/interviews/:id/notifications', interviewController.notify);
 router.get('/dashboard', dashboardController.summary);
 router.route('/departments').get(departmentController.list).post(departmentController.create);
 router.route('/departments/:id').patch(departmentController.update).delete(departmentController.remove);

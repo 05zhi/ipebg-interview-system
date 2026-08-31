@@ -1,7 +1,8 @@
-const { query } = require('../config/database');
+const { query, transaction } = require('../config/database');
 const { isUuid, parseTimeRange } = require('../services/validation');
+const { sendInterviewNotification } = require('../services/notificationService');
 
-const detailSelect = `select i.id, i.starts_at, i.ends_at, i.status, i.notes, i.archived_at, i.created_at, i.updated_at,
+const detailSelect = `select i.id, i.starts_at, i.ends_at, i.status, i.notes, i.meeting_provider, i.meeting_url, i.archived_at, i.created_at, i.updated_at,
   json_build_object('id', c.id, 'name', c.name, 'email', c.email, 'phone', c.phone, 'position', c.position,
     'department', json_build_object('id', cd.id, 'name', cd.name)) as candidate,
   coalesce(json_agg(json_build_object('manager', json_build_object('id', m.id, 'name', m.name, 'email', m.email,
@@ -39,6 +40,17 @@ function normalize(interview) {
   return { ...interview, managers: (interview.interview_managers || []).map((item) => item.manager), interview_managers: undefined };
 }
 
+function meetingDetails(value) {
+  const meetingUrl = String(value || '').trim();
+  if (!meetingUrl) return { meetingUrl: null, meetingProvider: null };
+  try {
+    const parsed = new URL(meetingUrl);
+    if (!['https:', 'http:'].includes(parsed.protocol) || meetingUrl.length > 2048) return { error: '會議連結格式不正確。' };
+    const host = parsed.hostname.toLocaleLowerCase();
+    return { meetingUrl, meetingProvider: host === 'meet.google.com' ? 'google_meet' : host.includes('teams.microsoft.com') ? 'teams' : 'other' };
+  } catch (_error) { return { error: '會議連結格式不正確。' }; }
+}
+
 async function list(req, res, next) {
   try {
     const conditions = [req.query.includeArchived === 'true' ? 'true' : 'i.archived_at is null']; const values = [];
@@ -74,17 +86,44 @@ async function save(req, res, next) {
     const managerIds = [...new Set(Array.isArray(req.body.managerIds) ? req.body.managerIds.map(String) : [])];
     const status = String(req.body.status || 'scheduled');
     const range = parseTimeRange(req.body);
+    const rawNotes = String(req.body.notes || '').trim();
+    const legacyMeetingUrl = rawNotes.match(/\u200B(https?:\/\/[^\s]+)/i)?.[1] || '';
+    const meeting = meetingDetails(req.body.meetingUrl || legacyMeetingUrl);
+    const notes = legacyMeetingUrl ? rawNotes.replace(`\u200B${legacyMeetingUrl}`, '').trim() : rawNotes;
     if (interviewId && !isUuid(interviewId)) return res.status(400).json({ message: '面試 ID 格式錯誤。' });
     if (!isUuid(candidateId)) return res.status(400).json({ message: '請選擇有效的候選人。' });
     if (!managerIds.length || managerIds.some((id) => !isUuid(id))) return res.status(400).json({ message: '請至少選擇一位有效主管。' });
     if (range.error) return res.status(400).json({ message: range.error });
     if (!statuses.includes(status)) return res.status(400).json({ message: '面試狀態不正確。' });
-    const id = (await query(`select public.save_interview($1::uuid, $2::uuid, $3::uuid[], $4::timestamptz,
-      $5::timestamptz, $6::public.interview_status, $7::text, $8::uuid) as id`,
-      [interviewId, candidateId, managerIds, range.startsAt, range.endsAt, status, String(req.body.notes || '').trim(), req.user.id])).rows[0].id;
+    if (meeting.error) return res.status(400).json({ message: meeting.error });
+    const id = await transaction(async (client) => {
+      const savedId = (await client.query(`select public.save_interview($1::uuid, $2::uuid, $3::uuid[], $4::timestamptz,
+        $5::timestamptz, $6::public.interview_status, $7::text, $8::uuid) as id`,
+      [interviewId, candidateId, managerIds, range.startsAt, range.endsAt, status, notes, req.user.id])).rows[0].id;
+      await client.query('update public.interviews set meeting_url = $1, meeting_provider = $2 where id = $3', [meeting.meetingUrl, meeting.meetingProvider, savedId]);
+      return savedId;
+    });
     const interview = (await selectInterviews('where i.id = $1 and i.archived_at is null', [id]))[0];
-    res.status(interviewId ? 200 : 201).json({ interview: normalize(interview) });
+    const normalized = normalize(interview);
+    let notification = null;
+    if (!interviewId) {
+      try { notification = await sendInterviewNotification(normalized, 'invitation'); }
+      catch (notificationError) {
+        console.error('Interview invitation failed:', notificationError.message);
+        notification = { enabled: true, sent: 0, failed: true };
+      }
+    }
+    res.status(interviewId ? 200 : 201).json({ interview: normalized, notification });
   } catch (error) { const known = rpcMessage(error); if (known) return res.status(known.status).json({ message: known.message }); next(error); }
+}
+
+async function notify(req, res, next) {
+  try {
+    if (!isUuid(req.params.id)) return res.status(400).json({ message: '面試 ID 格式錯誤。' });
+    const interview = normalize((await selectInterviews('where i.id = $1 and i.archived_at is null', [req.params.id]))[0]);
+    if (!interview) return res.status(404).json({ message: '找不到面試。' });
+    res.json({ notification: await sendInterviewNotification(interview, 'invitation') });
+  } catch (error) { next(error); }
 }
 
 async function remove(req, res, next) {
@@ -96,4 +135,4 @@ async function remove(req, res, next) {
   } catch (error) { next(error); }
 }
 
-module.exports = { list, get, create: save, update: save, remove };
+module.exports = { list, get, create: save, update: save, remove, notify };

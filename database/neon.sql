@@ -122,15 +122,30 @@ create table public.interviews (
   ends_at timestamptz not null,
   status public.interview_status not null default 'scheduled',
   notes text not null default '',
+  meeting_provider text,
+  meeting_url text,
   archived_at timestamptz,
   created_by uuid references public.users(id) on delete set null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   constraint interviews_valid_range check (ends_at > starts_at),
+  constraint interviews_meeting_provider_valid check (meeting_provider is null or meeting_provider in ('teams', 'google_meet', 'other')),
   constraint candidate_interviews_no_overlap exclude using gist (
     candidate_id with =,
     tstzrange(starts_at, ends_at, '[)') with &&
   ) where (status <> 'cancelled')
+);
+
+create table public.interview_notifications (
+  id uuid primary key default gen_random_uuid(),
+  interview_id uuid not null references public.interviews(id) on update cascade on delete cascade,
+  recipient_email text not null,
+  notification_type text not null check (notification_type in ('invitation', 'reminder')),
+  status text not null check (status in ('sent', 'failed')),
+  error_message text,
+  sent_at timestamptz,
+  created_at timestamptz not null default now(),
+  unique (interview_id, recipient_email, notification_type)
 );
 
 create table public.interview_managers (
@@ -154,6 +169,7 @@ create index interviews_start_status_idx on public.interviews (starts_at, status
 create index interviews_candidate_idx on public.interviews (candidate_id, starts_at desc);
 create index interviews_active_start_idx on public.interviews (starts_at desc) where archived_at is null;
 create index interview_managers_manager_idx on public.interview_managers (manager_id, interview_id);
+create index interview_notifications_status_idx on public.interview_notifications (status, created_at desc);
 
 create or replace function public.set_updated_at()
 returns trigger language plpgsql set search_path = public as $$

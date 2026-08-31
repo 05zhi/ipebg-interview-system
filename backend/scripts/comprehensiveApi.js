@@ -162,13 +162,18 @@ async function main() {
     await api('/hr/matches', { token: hrToken, method: 'POST', expected: 400, body: JSON.stringify({ candidateId: candidate.id, managerIds: [], rangeStart, rangeEnd, durationMinutes: 30 }) });
 
     const match = halfHourMatches[0];
-    const interview = (await api('/hr/interviews', { token: hrToken, method: 'POST', expected: 201, body: JSON.stringify({
+    const createdInterview = (await api('/hr/interviews', { token: hrToken, method: 'POST', expected: 201, body: JSON.stringify({
       candidateId: candidate.id, managerIds: managers.map((item) => item.id), startsAt: match.startsAt, endsAt: match.endsAt,
-      status: 'scheduled', notes: 'https://meet.example.test/qa',
-    }) })).body.interview;
+      status: 'scheduled', notes: 'QA notification test', meetingUrl: 'https://meet.google.com/abc-defg-hij',
+    }) })).body;
+    const interview = createdInterview.interview;
     ids.interviews.push(interview.id);
+    assert(createdInterview.notification?.enabled === true && createdInterview.notification.sent === 3, 'interview invitation email was not sent to all participants'); assertions += 1;
     const detail = (await api(`/hr/interviews/${interview.id}`, { token: hrToken })).body.interview;
     assert(detail.managers.length === 2 && detail.candidate.id === candidate.id, 'interview detail relationship failed'); assertions += 1;
+    assert(detail.meeting_provider === 'google_meet' && detail.meeting_url === 'https://meet.google.com/abc-defg-hij', 'meeting URL/provider was not persisted'); assertions += 1;
+    const resent = (await api(`/hr/interviews/${interview.id}/notifications`, { token: hrToken, method: 'POST' })).body.notification;
+    assert(resent.sent === 3 && resent.failed === 0, 'manual invitation resend failed'); assertions += 1;
     await api(`/hr/interviews/${interview.id}`, { token: hrToken, method: 'PATCH', body: JSON.stringify({
       candidateId: candidate.id, managerIds: managers.map((item) => item.id), startsAt: match.startsAt, endsAt: match.endsAt,
       status: 'completed', notes: 'Completed QA',

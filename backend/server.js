@@ -8,6 +8,7 @@ const adminRoutes = require('./routes/admin');
 const hrRoutes = require('./routes/hr');
 const { query, isConfigured } = require('./config/database');
 const { securityHeaders, apiLimiter, loginLimiter, configureTrustProxy } = require('./middleware/securityMiddleware');
+const { sendDueReminders } = require('./services/notificationService');
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -71,6 +72,8 @@ if (require.main === module) {
     } else {
       console.log('Automatic interview archiving is disabled.');
     }
+    sendDueReminders().catch((error) => console.error('Could not send interview reminders:', error.message));
+    setInterval(() => sendDueReminders().catch((error) => console.error('Could not send interview reminders:', error.message)), 15 * 60 * 1000).unref();
   });
 }
 

@@ -10,6 +10,7 @@
 - 每筆可用時段各自使用 IANA Timezone，支援參與者旅行；實際時間統一以 UTC 儲存
 - 自動尋找候選人與所有指定主管的共同空檔
 - 建立、搜尋、篩選、修改及刪除面試
+- 儲存 Teams／Google Meet／其他會議連結，透過 SMTP 寄送邀請、ICS 行事曆附件與面試提醒
 - Dashboard 顯示今日、本週面試數及人員統計
 - bcrypt 密碼雜湊與可撤銷的 HttpOnly JWT Session
 - Bootstrap 5 響應式企業管理介面
@@ -52,6 +53,14 @@ API_RATE_LIMIT=600
 LOGIN_RATE_LIMIT=5
 ENABLE_INTERVIEW_ARCHIVE=false
 INTERVIEW_ARCHIVE_AFTER_DAYS=90
+EMAIL_NOTIFICATIONS_ENABLED=false
+EMAIL_FROM=iPEBG Interview <no-reply@example.com>
+SMTP_HOST=
+SMTP_PORT=587
+SMTP_SECURE=false
+SMTP_USER=
+SMTP_PASS=
+INTERVIEW_REMINDER_HOURS=24
 ```
 
 連線字串只能放在後端環境變數，禁止放入前端或提交到 Git。此長駐 Express 服務優先使用
@@ -76,6 +85,11 @@ npm start
 `npm start` 預設不會刪除或封存任何面試資料。若正式環境要自動封存已完成面試，請明確設定
 `ENABLE_INTERVIEW_ARCHIVE=true`，並以 `INTERVIEW_ARCHIVE_AFTER_DAYS` 指定保留天數；封存只會設定
 `archived_at`，不會刪除面試者或面試紀錄。
+
+Email 通知預設關閉。正式使用時填入公司 SMTP 設定並將 `EMAIL_NOTIFICATIONS_ENABLED=true`；建立面試時會寄出
+邀請與 `.ics` 附件，服務每 15 分鐘檢查一次並於 `INTERVIEW_REMINDER_HOURS` 指定的時間範圍內寄送一次提醒。
+Teams／Google Meet 目前由 HR 貼上既有會議網址；若要由系統自動建立會議，仍需另外設定 Microsoft Graph 或
+Google Calendar OAuth 應用程式憑證。
 
 開啟 <http://localhost:3000>。健康檢查網址為 <http://localhost:3000/api/health>。
 
