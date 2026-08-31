@@ -28,6 +28,7 @@ router.post('/matches', findMatches);
 router.route('/interviews').get(interviewController.list).post(interviewController.create);
 router.route('/interviews/:id').get(interviewController.get).patch(interviewController.update).delete(interviewController.remove);
 router.post('/interviews/:id/notifications', interviewController.notify);
+router.put('/interviews/:id/feedback/:managerId', interviewController.saveFeedback);
 router.delete('/availability-links/:linkId', availabilityLinkController.revoke);
 router.get('/dashboard', dashboardController.summary);
 router.route('/departments').get(departmentController.list).post(departmentController.create);

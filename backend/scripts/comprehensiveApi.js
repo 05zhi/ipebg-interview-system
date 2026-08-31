@@ -181,7 +181,8 @@ async function main() {
     const match = halfHourMatches[0];
     const createdInterview = (await api('/hr/interviews', { token: hrToken, method: 'POST', expected: 201, body: JSON.stringify({
       candidateId: candidate.id, managerIds: managers.map((item) => item.id), startsAt: match.startsAt, endsAt: match.endsAt,
-      status: 'scheduled', notes: 'QA notification test', meetingUrl: 'https://meet.google.com/abc-defg-hij',
+      status: 'pending_confirmation', notes: 'QA notification test', meetingUrl: 'https://meet.google.com/abc-defg-hij',
+      roundNumber: 2, roundName: '技術面談', hiringOutcome: 'advance',
     }) })).body;
     const interview = createdInterview.interview;
     ids.interviews.push(interview.id);
@@ -189,11 +190,18 @@ async function main() {
     const detail = (await api(`/hr/interviews/${interview.id}`, { token: hrToken })).body.interview;
     assert(detail.managers.length === 2 && detail.candidate.id === candidate.id, 'interview detail relationship failed'); assertions += 1;
     assert(detail.meeting_provider === 'google_meet' && detail.meeting_url === 'https://meet.google.com/abc-defg-hij', 'meeting URL/provider was not persisted'); assertions += 1;
+    assert(detail.status === 'pending_confirmation' && detail.round_number === 2 && detail.round_name === '技術面談' && detail.hiring_outcome === 'advance', 'interview workflow fields were not persisted'); assertions += 1;
+    const feedback = (await api(`/hr/interviews/${interview.id}/feedback/${managers[0].id}`, { token: hrToken, method: 'PUT', body: JSON.stringify({
+      rating: 5, recommendation: 'strong_yes', comments: '技術能力與溝通表現良好',
+    }) })).body.feedback;
+    assert(feedback.rating === 5 && feedback.recommendation === 'strong_yes', 'manager feedback was not saved'); assertions += 1;
+    const detailWithFeedback = (await api(`/hr/interviews/${interview.id}`, { token: hrToken })).body.interview;
+    assert(detailWithFeedback.feedback.length === 1 && detailWithFeedback.feedback[0].manager_name === managers[0].name, 'manager feedback was not returned in interview detail'); assertions += 1;
     const resent = (await api(`/hr/interviews/${interview.id}/notifications`, { token: hrToken, method: 'POST' })).body.notification;
     assert(resent.sent === 3 && resent.failed === 0, 'manual invitation resend failed'); assertions += 1;
     await api(`/hr/interviews/${interview.id}`, { token: hrToken, method: 'PATCH', body: JSON.stringify({
       candidateId: candidate.id, managerIds: managers.map((item) => item.id), startsAt: match.startsAt, endsAt: match.endsAt,
-      status: 'completed', notes: 'Completed QA',
+      status: 'completed', notes: 'Completed QA', roundNumber: 2, roundName: '技術面談', hiringOutcome: 'offer',
     }) });
     const filtered = (await api(`/hr/interviews?status=completed&search=${encodeURIComponent('Completed QA')}`, { token: hrToken })).body.interviews;
     assert(filtered.some((item) => item.id === interview.id), 'interview status/search filter failed'); assertions += 1;

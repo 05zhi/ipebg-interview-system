@@ -2,19 +2,25 @@ const { query, transaction } = require('../config/database');
 const { isUuid, parseTimeRange } = require('../services/validation');
 const { sendInterviewNotification } = require('../services/notificationService');
 
-const detailSelect = `select i.id, i.starts_at, i.ends_at, i.status, i.notes, i.meeting_provider, i.meeting_url, i.archived_at, i.created_at, i.updated_at,
+const detailSelect = `select i.id, i.starts_at, i.ends_at, i.status, i.notes, i.meeting_provider, i.meeting_url,
+  i.round_number, i.round_name, i.hiring_outcome, i.archived_at, i.created_at, i.updated_at,
   json_build_object('id', c.id, 'name', c.name, 'email', c.email, 'phone', c.phone, 'position', c.position,
     'department', json_build_object('id', cd.id, 'name', cd.name)) as candidate,
   coalesce(json_agg(json_build_object('manager', json_build_object('id', m.id, 'name', m.name, 'email', m.email,
     'department', json_build_object('id', md.id, 'name', md.name))) order by m.name)
-    filter (where m.id is not null), '[]'::json) as interview_managers
+    filter (where m.id is not null), '[]'::json) as interview_managers,
+  coalesce((select json_agg(json_build_object('id', f.id, 'manager_id', f.manager_id, 'manager_name', fm.name,
+    'rating', f.rating, 'recommendation', f.recommendation, 'comments', f.comments, 'updated_at', f.updated_at) order by fm.name)
+    from public.interview_feedback f join public.managers fm on fm.id = f.manager_id where f.interview_id = i.id), '[]'::json) as feedback
   from public.interviews i
   join public.candidates c on c.id = i.candidate_id
   join public.departments cd on cd.id = c.department_id
   left join public.interview_managers im on im.interview_id = i.id
   left join public.managers m on m.id = im.manager_id
   left join public.departments md on md.id = m.department_id`;
-const statuses = ['scheduled', 'completed', 'cancelled'];
+const statuses = ['pending_confirmation', 'confirmed', 'scheduled', 'completed', 'no_show', 'cancelled'];
+const outcomes = ['pending', 'advance', 'reject', 'offer', 'hired', 'withdrawn'];
+const recommendations = ['strong_yes', 'yes', 'neutral', 'no', 'strong_no'];
 
 async function selectInterviews(where = '', values = [], order = '') {
   return (await query(`${detailSelect} ${where}
@@ -90,17 +96,24 @@ async function save(req, res, next) {
     const legacyMeetingUrl = rawNotes.match(/\u200B(https?:\/\/[^\s]+)/i)?.[1] || '';
     const meeting = meetingDetails(req.body.meetingUrl || legacyMeetingUrl);
     const notes = legacyMeetingUrl ? rawNotes.replace(`\u200B${legacyMeetingUrl}`, '').trim() : rawNotes;
+    const roundNumber = Number(req.body.roundNumber ?? 1);
+    const roundName = String(req.body.roundName || '').trim() || null;
+    const hiringOutcome = String(req.body.hiringOutcome || 'pending');
     if (interviewId && !isUuid(interviewId)) return res.status(400).json({ message: '面試 ID 格式錯誤。' });
     if (!isUuid(candidateId)) return res.status(400).json({ message: '請選擇有效的候選人。' });
     if (!managerIds.length || managerIds.some((id) => !isUuid(id))) return res.status(400).json({ message: '請至少選擇一位有效主管。' });
     if (range.error) return res.status(400).json({ message: range.error });
     if (!statuses.includes(status)) return res.status(400).json({ message: '面試狀態不正確。' });
     if (meeting.error) return res.status(400).json({ message: meeting.error });
+    if (!Number.isInteger(roundNumber) || roundNumber < 1 || roundNumber > 20) return res.status(400).json({ message: '面試輪次必須是 1 到 20 的整數。' });
+    if ((roundName && roundName.length > 100) || !outcomes.includes(hiringOutcome)) return res.status(400).json({ message: '面試輪次名稱或錄取結果不正確。' });
     const id = await transaction(async (client) => {
       const savedId = (await client.query(`select public.save_interview($1::uuid, $2::uuid, $3::uuid[], $4::timestamptz,
         $5::timestamptz, $6::public.interview_status, $7::text, $8::uuid) as id`,
       [interviewId, candidateId, managerIds, range.startsAt, range.endsAt, status, notes, req.user.id])).rows[0].id;
       await client.query('update public.interviews set meeting_url = $1, meeting_provider = $2 where id = $3', [meeting.meetingUrl, meeting.meetingProvider, savedId]);
+      await client.query(`update public.interviews set round_number = $1, round_name = $2, hiring_outcome = $3 where id = $4`,
+        [roundNumber, roundName, hiringOutcome, savedId]);
       return savedId;
     });
     const interview = (await selectInterviews('where i.id = $1 and i.archived_at is null', [id]))[0];
@@ -126,6 +139,28 @@ async function notify(req, res, next) {
   } catch (error) { next(error); }
 }
 
+async function saveFeedback(req, res, next) {
+  try {
+    if (!isUuid(req.params.id) || !isUuid(req.params.managerId)) return res.status(400).json({ message: '面試或主管 ID 格式錯誤。' });
+    const rating = req.body.rating === '' || req.body.rating == null ? null : Number(req.body.rating);
+    const recommendation = String(req.body.recommendation || 'neutral');
+    const comments = String(req.body.comments || '').trim();
+    if ((rating !== null && (!Number.isInteger(rating) || rating < 1 || rating > 5)) || !recommendations.includes(recommendation) || comments.length > 5000) {
+      return res.status(400).json({ message: '評分、建議或評語格式不正確。' });
+    }
+    const feedback = (await query(`insert into public.interview_feedback
+      (interview_id, manager_id, rating, recommendation, comments, created_by) values ($1, $2, $3, $4, $5, $6)
+      on conflict (interview_id, manager_id) do update set rating = excluded.rating,
+        recommendation = excluded.recommendation, comments = excluded.comments, created_by = excluded.created_by
+      returning id, interview_id, manager_id, rating, recommendation, comments, updated_at`,
+    [req.params.id, req.params.managerId, rating, recommendation, comments, req.user.id])).rows[0];
+    res.json({ feedback });
+  } catch (error) {
+    if (error?.code === '23503') return res.status(404).json({ message: '找不到此面試的參與主管。' });
+    next(error);
+  }
+}
+
 async function remove(req, res, next) {
   try {
     if (!isUuid(req.params.id)) return res.status(400).json({ message: '面試 ID 格式錯誤。' });
@@ -135,4 +170,4 @@ async function remove(req, res, next) {
   } catch (error) { next(error); }
 }
 
-module.exports = { list, get, create: save, update: save, remove, notify };
+module.exports = { list, get, create: save, update: save, remove, notify, saveFeedback };

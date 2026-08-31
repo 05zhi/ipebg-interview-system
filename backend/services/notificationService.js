@@ -73,7 +73,8 @@ async function sendDueReminders() {
     coalesce(json_agg(json_build_object('name', m.name, 'email', m.email)) filter (where m.id is not null), '[]'::json) as managers
     from public.interviews i join public.candidates c on c.id = i.candidate_id
     left join public.interview_managers im on im.interview_id = i.id left join public.managers m on m.id = im.manager_id
-    where i.archived_at is null and i.status = 'scheduled' and i.starts_at > now() and i.starts_at <= now() + ($1 || ' hours')::interval
+    where i.archived_at is null and i.status in ('pending_confirmation', 'confirmed', 'scheduled')
+      and i.starts_at > now() and i.starts_at <= now() + ($1 || ' hours')::interval
     group by i.id, c.id`, [hours]);
   for (const interview of result.rows) await sendInterviewNotification(interview, 'reminder');
   return { enabled: true, interviews: result.rowCount };

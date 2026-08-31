@@ -63,9 +63,20 @@ document.addEventListener('keydown', dismissNotificationOnNextAction);
 function empty(columns, message) { return `<tr><td colspan="${columns}" class="empty">${API.escape(message)}</td></tr>`; }
 function tableSkeleton(columns, rows = 4) { return Array.from({ length: rows }, () => `<tr class="skeleton-row">${Array.from({ length: columns }, () => '<td><span class="skeleton-line"></span></td>').join('')}</tr>`).join(''); }
 function statusBadge(status) {
-  const labels = { scheduled: '已排程', completed: '已完成', cancelled: '已取消' };
-  const style = status === 'cancelled' ? 'badge-cancelled' : status === 'completed' ? 'badge-available' : 'badge-booked';
+  const labels = { pending_confirmation: '待確認', confirmed: '已確認', scheduled: '已排程', completed: '已完成', no_show: '未出席', cancelled: '已取消' };
+  const style = ['cancelled', 'no_show'].includes(status) ? 'badge-cancelled' : status === 'completed' ? 'badge-available' : 'badge-booked';
   return `<span class="badge ${style}">${labels[status] || API.escape(status)}</span>`;
+}
+const windowStatusBadge = statusBadge;
+const WORKFLOW_STATUSES = { pending_confirmation: '待確認', confirmed: '已確認', scheduled: '已排程', completed: '已完成', no_show: '未出席', cancelled: '已取消' };
+const HIRING_OUTCOMES = { pending: '待決定', advance: '進入下一輪', reject: '不錄取', offer: '已發 Offer', hired: '已錄取', withdrawn: '候選人退出' };
+function workflowOptions(values, selected) { return Object.entries(values).map(([value, label]) => `<option value="${value}" ${value === selected ? 'selected' : ''}>${label}</option>`).join(''); }
+function setupWorkflowFields() {
+  const filter = document.querySelector('#interview-status');
+  filter.innerHTML = `<option value="">所有狀態</option>${workflowOptions(WORKFLOW_STATUSES, '')}`;
+  const editStatus = document.querySelector('#edit-interview-status');
+  editStatus.innerHTML = workflowOptions(WORKFLOW_STATUSES, 'pending_confirmation');
+  if (!document.querySelector('#interview-round-number')) editStatus.closest('.col-md-5').insertAdjacentHTML('afterend', `<div class="col-md-3"><label class="form-label" for="interview-round-number">面試輪次</label><input class="form-control" id="interview-round-number" type="number" min="1" max="20" value="1"></div><div class="col-md-4"><label class="form-label" for="interview-round-name">輪次名稱</label><input class="form-control" id="interview-round-name" maxlength="100" placeholder="例如：技術面談"></div><div class="col-md-5"><label class="form-label" for="interview-hiring-outcome">錄取結果</label><select class="form-select" id="interview-hiring-outcome">${workflowOptions(HIRING_OUTCOMES, 'pending')}</select></div>`);
 }
 // Only a URL entered in the dedicated field gets an invisible marker. URLs
 // typed directly in the notes field remain ordinary notes text.
@@ -161,14 +172,14 @@ async function loadCandidates() {
       const candidateId = interview.candidate?.id;
       if (!candidateId || interview.status === 'cancelled') return;
       const current = state.candidateInterviewStatuses.get(candidateId);
-      if (interview.status === 'scheduled' || !current) state.candidateInterviewStatuses.set(candidateId, interview.status);
+      if (!current) state.candidateInterviewStatuses.set(candidateId, interview.status);
     });
     renderCandidates();
   }
   catch (error) { notify(error.message, 'danger'); }
 }
 function renderCandidates() {
-  const statusOrder = { scheduled: 1, completed: 2 };
+  const statusOrder = { pending_confirmation: 1, confirmed: 2, scheduled: 2, completed: 3, no_show: 4 };
   const candidates = [...state.candidates].sort((a, b) => {
     const aOrder = statusOrder[state.candidateInterviewStatuses.get(a.id)] ?? 0;
     const bOrder = statusOrder[state.candidateInterviewStatuses.get(b.id)] ?? 0;
@@ -179,11 +190,7 @@ function renderCandidates() {
     const phone = item.phone ? `<small class="d-block text-muted-app">${API.escape(item.phone)}</small>` : '';
     const contact = email || phone ? `${email}${phone}` : '<span class="text-muted-app">未提供</span>';
     const interviewStatus = state.candidateInterviewStatuses.get(item.id);
-    const statusBadge = interviewStatus === 'scheduled'
-      ? '<span class="badge badge-warning">已安排</span>'
-      : interviewStatus === 'completed'
-        ? '<span class="badge badge-available">已面試結束</span>'
-        : '<span class="badge badge-muted">未安排</span>';
+    const statusBadge = interviewStatus ? windowStatusBadge(interviewStatus) : '<span class="badge badge-muted">未安排</span>';
     return `<tr><td><div class="person-cell"><span class="avatar">${API.escape(item.name.slice(0, 1).toUpperCase())}</span><strong>${API.escape(item.name)}</strong></div></td><td><strong>${API.escape(item.position)}</strong></td><td><span class="department-tag">${API.escape(item.department?.name)}</span></td><td>${contact}</td><td>${statusBadge}</td><td class="text-end text-nowrap action-cell"><button class="btn btn-sm btn-outline-secondary" data-candidate-slots="${item.id}" title="管理面試者可面試時間"><i class="bi bi-calendar3 me-1"></i>空閒時間</button> <button class="btn btn-sm btn-outline-secondary" data-availability-link="candidate" data-owner-id="${item.id}"><i class="bi bi-link-45deg me-1"></i>填寫連結</button> <button class="btn btn-sm btn-outline-primary" data-edit-candidate="${item.id}"><i class="bi bi-pencil me-1"></i>編輯</button> <button class="btn btn-sm btn-outline-danger" data-delete-candidate="${item.id}"><i class="bi bi-trash me-1"></i>刪除</button></td></tr>`;
   }).join('') || empty(6, '尚未建立面試者。');
 }
@@ -249,8 +256,8 @@ async function openAvailabilityCalendar(type, item) {
 async function loadAvailabilityCalendar() {
   const context = state.availabilityContext;
   const path = context.type === 'manager' ? 'managers' : 'candidates';
-  const [availability, interviewData] = await Promise.all([API.request(`/hr/${path}/${context.ownerId}/slots`), context.type === 'manager' ? API.request('/hr/interviews?status=scheduled') : Promise.resolve({ interviews: [] })]);
-  state.availability = { ...availability, bookedIntervals: (interviewData.interviews || []).filter((interview) => interview.managers?.some((manager) => manager.id === context.ownerId)).map((interview) => ({ startsAt: interview.starts_at, endsAt: interview.ends_at })) };
+  const [availability, interviewData] = await Promise.all([API.request(`/hr/${path}/${context.ownerId}/slots`), context.type === 'manager' ? API.request('/hr/interviews') : Promise.resolve({ interviews: [] })]);
+  state.availability = { ...availability, bookedIntervals: (interviewData.interviews || []).filter((interview) => ['pending_confirmation', 'confirmed', 'scheduled'].includes(interview.status) && interview.managers?.some((manager) => manager.id === context.ownerId)).map((interview) => ({ startsAt: interview.starts_at, endsAt: interview.ends_at })) };
   renderMonthCalendar();
 }
 function availabilityRanges(slots) {
@@ -339,6 +346,10 @@ async function showInterviewDetails(item) {
   const start = time.format(new Date(item.starts_at)); const end = time.format(new Date(item.ends_at));
   const meetingUrl = meetingUrlFromNotes(item.notes); const notes = notesWithoutMeetingUrl(item.notes);
   panel.innerHTML = `<article class="booking-panel mb-4"><div class="d-flex justify-content-between align-items-start gap-3"><div><p class="eyebrow mb-1">Interview details</p><h3 class="h5 mb-0">面試詳細資料</h3></div><button class="btn-close" type="button" data-close-interview-details aria-label="關閉"></button></div><div class="row g-3 mt-1"><div class="col-md-6"><strong>面試者</strong><div id="detail-candidate">${API.escape(item.candidate?.name)} <small class="text-muted-app">（讀取時區中…）</small></div></div><div class="col-md-6"><strong>參與主管</strong><div id="detail-managers">${item.managers.map((manager) => `<div>${API.escape(manager.name)} <small class="text-muted-app">（讀取時區中…）</small></div>`).join('')}</div></div><div class="col-md-6"><strong>面試時間</strong><div>${API.escape(start)} – ${API.escape(end)}</div><small class="text-muted-app">台灣時間 Asia/Taipei</small></div><div class="col-md-6"><strong>狀態</strong><div>${statusBadge(item.status)}</div></div><div class="col-12"><strong>備註</strong><div class="notes-cell mt-1">${API.escape(notes || '—')}</div></div><div class="col-12"><strong>會議連結</strong><div class="mt-1">${meetingUrl ? `<a class="meeting-link" href="${API.escape(meetingUrl)}" target="_blank" rel="noopener noreferrer"><i class="bi bi-camera-video"></i>開啟會議</a>` : '<span class="text-muted-app">未提供</span>'}</div></div><div class="col-12 d-flex justify-content-end gap-2"><button class="btn btn-light" type="button" data-close-interview-details>關閉</button><button class="btn btn-primary" type="button" data-start-interview-edit="${item.id}"><i class="bi bi-pencil me-1"></i>編輯</button></div></div></article>`;
+  panel.querySelector('.row').insertAdjacentHTML('beforeend', `<div class="col-md-6"><strong>面試輪次</strong><div>第 ${Number(item.round_number || 1)} 輪${item.round_name ? `・${API.escape(item.round_name)}` : ''}</div></div><div class="col-md-6"><strong>錄取結果</strong><div>${API.escape(HIRING_OUTCOMES[item.hiring_outcome] || '待決定')}</div></div>`);
+  const recommendationLabels = { strong_yes: '強烈建議錄取', yes: '建議錄取', neutral: '待討論', no: '不建議錄取', strong_no: '強烈不建議' };
+  const feedbackCards = (item.feedback || []).map((entry) => `<article class="border rounded p-3 mb-2"><div class="d-flex justify-content-between gap-2"><strong>${API.escape(entry.manager_name)}</strong><span>${entry.rating ? `${entry.rating} / 5` : '未評分'}・${API.escape(recommendationLabels[entry.recommendation] || entry.recommendation)}</span></div><p class="mb-0 mt-2 notes-cell">${API.escape(entry.comments || '尚無評語')}</p></article>`).join('') || '<p class="text-muted-app">尚無主管評語。</p>';
+  panel.querySelector('.row').insertAdjacentHTML('beforeend', `<div class="col-12"><hr><h4 class="h6">主管評語</h4>${feedbackCards}<form id="interview-feedback-form" class="row g-2 mt-1"><input type="hidden" id="feedback-interview-id" value="${API.escape(item.id)}"><div class="col-md-4"><label class="form-label" for="feedback-manager">主管</label><select class="form-select" id="feedback-manager" required>${item.managers.map((manager) => `<option value="${manager.id}">${API.escape(manager.name)}</option>`).join('')}</select></div><div class="col-md-2"><label class="form-label" for="feedback-rating">評分</label><select class="form-select" id="feedback-rating"><option value="">未評分</option>${[1, 2, 3, 4, 5].map((rating) => `<option value="${rating}">${rating}</option>`).join('')}</select></div><div class="col-md-6"><label class="form-label" for="feedback-recommendation">建議</label><select class="form-select" id="feedback-recommendation">${workflowOptions(recommendationLabels, 'neutral')}</select></div><div class="col-12"><label class="form-label" for="feedback-comments">評語</label><textarea class="form-control" id="feedback-comments" maxlength="5000" rows="3"></textarea></div><div class="col-12 text-end"><button class="btn btn-outline-primary" type="submit">儲存主管評語</button></div></form></div>`);
   panel.querySelector(`[data-start-interview-edit="${item.id}"]`).insertAdjacentHTML('afterend', `<button class="btn btn-outline-danger" type="button" data-delete-current-interview="${item.id}"><i class="bi bi-trash me-1"></i>刪除</button>`);
   panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
   const findTimezone = async (type, person) => {
@@ -380,7 +391,8 @@ function openInterview(item, isMatch = false) {
     const editNotes = panel.querySelector('#inline-edit-interview-notes');
     panel.querySelectorAll('input[readonly]').forEach((input) => { input.closest('.col-md-6')?.setAttribute('hidden', ''); });
     const statusSelect = panel.querySelector('#inline-edit-interview-status');
-    statusSelect.querySelector('option[value="cancelled"]')?.remove();
+    statusSelect.innerHTML = workflowOptions(WORKFLOW_STATUSES, item.status);
+    statusSelect.closest('.col-md-5').insertAdjacentHTML('afterend', `<div class="col-md-3"><label class="form-label" for="inline-edit-round-number">面試輪次</label><input class="form-control" id="inline-edit-round-number" type="number" min="1" max="20" value="${Number(item.round_number || 1)}"></div><div class="col-md-4"><label class="form-label" for="inline-edit-round-name">輪次名稱</label><input class="form-control" id="inline-edit-round-name" maxlength="100" value="${API.escape(item.round_name || '')}"></div><div class="col-md-5"><label class="form-label" for="inline-edit-hiring-outcome">錄取結果</label><select class="form-select" id="inline-edit-hiring-outcome">${workflowOptions(HIRING_OUTCOMES, item.hiring_outcome || 'pending')}</select></div>`);
     panel.querySelector('h3')?.insertAdjacentHTML('beforeend', ' <small class="text-muted-app fw-normal">（面試時間無法直接修改；若要更改時間，請先刪除此面試，再重新媒合時段建立新的面試。）</small>');
     statusSelect.dataset.originalStatus = item.status === 'cancelled' ? 'scheduled' : item.status;
     editNotes.value = notesWithoutMeetingUrl(item.notes);
@@ -392,7 +404,8 @@ function openInterview(item, isMatch = false) {
   }
   setValue('#interview-id', isMatch ? '' : item.id); setValue('#interview-candidate', candidate.id);
   setValue('#interview-start', item.startsAt || item.starts_at); setValue('#interview-end', item.endsAt || item.ends_at);
-  setValue('#edit-interview-status', item.status || 'scheduled'); setValue('#interview-notes', item.notes || '');
+  setValue('#edit-interview-status', item.status || 'pending_confirmation'); setValue('#interview-notes', item.notes || '');
+  setValue('#interview-round-number', item.round_number || 1); setValue('#interview-round-name', item.round_name || ''); setValue('#interview-hiring-outcome', item.hiring_outcome || 'pending');
   document.querySelector('#interview-participants').innerHTML = `<strong>面試者：</strong>${API.escape(candidate.name)}<br><strong>主管：</strong>${managers.map((manager) => API.escape(manager.name)).join('、')}<input type="hidden" id="interview-managers" value="${managers.map((manager) => manager.id).join(',')}">`;
   document.querySelector('#interview-form button[type="submit"]').textContent = isMatch ? '建立面試' : '儲存修改'; modal('#interview-modal').show();
 }
@@ -465,7 +478,7 @@ document.querySelector('#candidate-form').addEventListener('submit', async (even
 document.querySelector('#availability-form').addEventListener('submit', async (event) => { event.preventDefault(); const type = value('#availability-type'); const timezone = value('#availability-timezone'); try { await API.request(`/hr/${type === 'manager' ? 'managers' : 'candidates'}/${value('#availability-owner')}/slots`, { method: 'POST', body: JSON.stringify({ startsAt: zonedLocalToIso(value('#availability-date'), value('#availability-start'), timezone), endsAt: zonedLocalToIso(value('#availability-date'), value('#availability-end'), timezone), timezone }) }); await loadAvailability(); } catch (error) { notify(error.message, 'danger'); } });
 document.querySelector('#match-form').addEventListener('submit', async (event) => { event.preventDefault(); const managerIds = [...document.querySelectorAll('#match-managers input:checked')].map((input) => input.value); try { const data = await API.request('/hr/matches', { method: 'POST', body: JSON.stringify({ candidateId: value('#match-candidate'), managerIds, rangeStart: `${value('#match-from')}T00:00:00Z`, rangeEnd: `${value('#match-to')}T23:59:59Z`, durationMinutes: Number(value('#match-duration')) }) }); state.matches = data.matches; renderMatches(); } catch (error) { notify(error.message, 'danger'); } });
 document.querySelector('#interview-form').addEventListener('submit', () => { setValue('#interview-notes', composeInterviewNotes(notesWithoutMeetingUrl(value('#interview-notes')), value('#interview-meeting-url'))); });
-document.querySelector('#interview-form').addEventListener('submit', async (event) => { event.preventDefault(); const id = value('#interview-id'); const payload = { candidateId: value('#interview-candidate'), managerIds: value('#interview-managers').split(','), startsAt: value('#interview-start'), endsAt: value('#interview-end'), status: value('#edit-interview-status'), notes: value('#interview-notes') }; try { await API.request(id ? `/hr/interviews/${id}` : '/hr/interviews', { method: id ? 'PATCH' : 'POST', body: JSON.stringify(payload) }); modal('#interview-modal').hide(); notify('面試已儲存。'); showSection('interviews'); } catch (error) { notify(error.message, 'danger'); } });
+document.querySelector('#interview-form').addEventListener('submit', async (event) => { event.preventDefault(); const id = value('#interview-id'); const payload = { candidateId: value('#interview-candidate'), managerIds: value('#interview-managers').split(','), startsAt: value('#interview-start'), endsAt: value('#interview-end'), status: value('#edit-interview-status'), notes: value('#interview-notes'), roundNumber: Number(value('#interview-round-number')), roundName: value('#interview-round-name'), hiringOutcome: value('#interview-hiring-outcome') }; try { await API.request(id ? `/hr/interviews/${id}` : '/hr/interviews', { method: id ? 'PATCH' : 'POST', body: JSON.stringify(payload) }); modal('#interview-modal').hide(); notify('面試已儲存。'); showSection('interviews'); } catch (error) { notify(error.message, 'danger'); } });
 document.querySelector('#password-form').addEventListener('submit', async (event) => { event.preventDefault(); try { await API.request('/auth/password', { method: 'PATCH', body: JSON.stringify({ currentPassword: value('#current-password'), newPassword: value('#new-password') }) }); API.clearSession(); location.href = 'login.html'; } catch (error) { notify(error.message, 'danger'); } });
 document.querySelector('#profile-form').addEventListener('submit', async (event) => { event.preventDefault(); try { const result = await API.request('/auth/profile', { method: 'PATCH', body: JSON.stringify({ name: value('#profile-name'), email: value('#profile-email'), username: value('#profile-username') }) }); const saved = { ...API.profile(), username: result.user.username, full_name: result.profile.name, email: result.profile.email }; localStorage.setItem('interview_profile', JSON.stringify(saved)); renderCurrentUser(result.profile.name); notify('個人資料已更新。'); } catch (error) { notify(error.message, 'danger'); } });
 ['#manager-search', '#candidate-search', '#interview-search'].forEach((selector) => { let timer; document.querySelector(selector).addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(() => selector.includes('manager') ? loadManagers() : selector.includes('candidate') ? loadCandidates() : loadInterviews(), 300); }); });
@@ -475,11 +488,25 @@ document.querySelector('#interview-page-size').addEventListener('change', (event
 document.querySelector('#interview-prev').addEventListener('click', () => { if (state.interviewPage > 1) { state.interviewPage -= 1; renderInterviews(); } });
 document.querySelector('#interview-next').addEventListener('click', () => { if (state.interviewPage * state.interviewPageSize < state.interviews.length) { state.interviewPage += 1; renderInterviews(); } });
 document.addEventListener('submit', async (event) => {
+  if (event.target.matches('#interview-feedback-form')) {
+    event.preventDefault();
+    const button = event.target.querySelector('button[type="submit"]'); button.disabled = true;
+    try {
+      const interviewId = value('#feedback-interview-id'); const managerId = value('#feedback-manager');
+      await API.request(`/hr/interviews/${interviewId}/feedback/${managerId}`, { method: 'PUT', body: JSON.stringify({ rating: value('#feedback-rating'), recommendation: value('#feedback-recommendation'), comments: value('#feedback-comments') }) });
+      notify('主管評語已儲存。');
+      const refreshed = await API.request(`/hr/interviews/${interviewId}`); const index = state.interviews.findIndex((item) => item.id === interviewId);
+      if (index >= 0) state.interviews[index] = withMeetingUrl(refreshed.interview);
+      await showInterviewDetails(withMeetingUrl(refreshed.interview));
+    } catch (error) { notify(error.message, 'danger'); }
+    finally { button.disabled = false; }
+    return;
+  }
   if (event.target.matches('#inline-interview-edit-form')) {
     event.preventDefault();
     const button = event.target.querySelector('button[type="submit"]'); button.disabled = true; button.textContent = '儲存中…';
     try {
-      await API.request(`/hr/interviews/${value('#inline-interview-id')}`, { method: 'PATCH', body: JSON.stringify({ candidateId: value('#inline-interview-candidate'), managerIds: value('#inline-interview-managers').split(','), startsAt: value('#inline-interview-start'), endsAt: value('#inline-interview-end'), status: value('#inline-edit-interview-status'), notes: composeInterviewNotes(value('#inline-edit-interview-notes'), value('#inline-edit-interview-meeting-url')) }) });
+      await API.request(`/hr/interviews/${value('#inline-interview-id')}`, { method: 'PATCH', body: JSON.stringify({ candidateId: value('#inline-interview-candidate'), managerIds: value('#inline-interview-managers').split(','), startsAt: value('#inline-interview-start'), endsAt: value('#inline-interview-end'), status: value('#inline-edit-interview-status'), notes: composeInterviewNotes(value('#inline-edit-interview-notes'), value('#inline-edit-interview-meeting-url')), roundNumber: Number(value('#inline-edit-round-number')), roundName: value('#inline-edit-round-name'), hiringOutcome: value('#inline-edit-hiring-outcome') }) });
       document.querySelector('#interview-edit-panel')?.remove(); notify('面試已更新。'); loadInterviews();
     } catch (error) { button.disabled = false; button.textContent = '儲存修改'; notify(error.message, 'danger'); }
     return;
@@ -488,7 +515,7 @@ document.addEventListener('submit', async (event) => {
   event.preventDefault();
   const button = event.target.querySelector('button[type="submit"]'); button.disabled = true; button.textContent = '建立中…';
   try {
-    await API.request('/hr/interviews', { method: 'POST', body: JSON.stringify({ ...state.pendingInterview, status: 'scheduled', notes: composeInterviewNotes(value('#inline-interview-notes'), value('#inline-interview-meeting-url')) }) });
+    await API.request('/hr/interviews', { method: 'POST', body: JSON.stringify({ ...state.pendingInterview, status: 'pending_confirmation', notes: composeInterviewNotes(value('#inline-interview-notes'), value('#inline-interview-meeting-url')), roundNumber: 1, hiringOutcome: 'pending' }) });
     document.querySelector('#booking-panel')?.remove(); state.pendingInterview = null; notify('面試已成功建立。'); showSection('interviews');
   } catch (error) { button.disabled = false; button.textContent = '確認建立面試'; notify(error.message, 'danger'); }
 });
@@ -557,4 +584,5 @@ renderCalendarDay = function renderCalendarDayWithInterviewLocks() {
 };
 
 function updateTaiwanClock() { const clock = document.querySelector('#taiwan-now'); if (clock) clock.textContent = new Intl.DateTimeFormat('zh-TW', { timeZone: TAIWAN_TIMEZONE, month: '2-digit', day: '2-digit', weekday: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date()); }
-if (hrUser) { if (location.hash === '#timezone') location.replace('/timezone/'); else { document.querySelector('#edit-interview-status option[value="cancelled"]')?.remove(); const start = new Date(); const end = new Date(); end.setDate(end.getDate() + 30); setValue('#match-from', start.toISOString().slice(0, 10)); setValue('#match-to', end.toISOString().slice(0, 10)); setupInterviewCalendar(); updateTaiwanClock(); setInterval(updateTaiwanClock, 60_000); loadDepartments(); loadProfile(); showSection(currentAppView() || location.hash.slice(1) || 'dashboard'); } }
+setupWorkflowFields();
+if (hrUser) { if (location.hash === '#timezone') location.replace('/timezone/'); else { const start = new Date(); const end = new Date(); end.setDate(end.getDate() + 30); setValue('#match-from', start.toISOString().slice(0, 10)); setValue('#match-to', end.toISOString().slice(0, 10)); setupInterviewCalendar(); updateTaiwanClock(); setInterval(updateTaiwanClock, 60_000); loadDepartments(); loadProfile(); showSection(currentAppView() || location.hash.slice(1) || 'dashboard'); } }

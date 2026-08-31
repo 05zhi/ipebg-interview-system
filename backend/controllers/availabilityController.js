@@ -104,7 +104,7 @@ function handlers(type) {
         if (type === 'manager') {
           const bookedInterviews = (await client.query(`select i.starts_at, i.ends_at
             from public.interviews i join public.interview_managers im on im.interview_id = i.id
-            where im.manager_id = $1 and i.status = 'scheduled' and i.starts_at < $2 and i.ends_at > $3`,
+            where im.manager_id = $1 and i.status in ('pending_confirmation', 'confirmed', 'scheduled') and i.starts_at < $2 and i.ends_at > $3`,
             [req.params.id, dayEnd, dayStart])).rows;
           const isStillAvailable = (startsAt, endsAt) => {
             for (let time = new Date(startsAt).getTime(); time < new Date(endsAt).getTime(); time += 30 * 60_000) {

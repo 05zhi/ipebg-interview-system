@@ -7,7 +7,7 @@ create extension if not exists "pgcrypto";
 create extension if not exists "btree_gist";
 
 create type public.system_role as enum ('administrator', 'hr');
-create type public.interview_status as enum ('scheduled', 'completed', 'cancelled');
+create type public.interview_status as enum ('pending_confirmation', 'confirmed', 'scheduled', 'completed', 'no_show', 'cancelled');
 
 create table public.users (
   id uuid primary key default gen_random_uuid(),
@@ -124,12 +124,17 @@ create table public.interviews (
   notes text not null default '',
   meeting_provider text,
   meeting_url text,
+  round_number smallint not null default 1,
+  round_name text,
+  hiring_outcome text not null default 'pending',
   archived_at timestamptz,
   created_by uuid references public.users(id) on delete set null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   constraint interviews_valid_range check (ends_at > starts_at),
   constraint interviews_meeting_provider_valid check (meeting_provider is null or meeting_provider in ('teams', 'google_meet', 'other')),
+  constraint interviews_round_number_valid check (round_number between 1 and 20),
+  constraint interviews_hiring_outcome_valid check (hiring_outcome in ('pending', 'advance', 'reject', 'offer', 'hired', 'withdrawn')),
   constraint candidate_interviews_no_overlap exclude using gist (
     candidate_id with =,
     tstzrange(starts_at, ends_at, '[)') with &&
@@ -172,6 +177,22 @@ create table public.interview_managers (
   primary key (interview_id, manager_id)
 );
 
+create table public.interview_feedback (
+  id uuid primary key default gen_random_uuid(),
+  interview_id uuid not null,
+  manager_id uuid not null,
+  rating smallint,
+  recommendation text not null default 'neutral',
+  comments text not null default '',
+  created_by uuid references public.users(id) on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  foreign key (interview_id, manager_id) references public.interview_managers(interview_id, manager_id) on update cascade on delete cascade,
+  unique (interview_id, manager_id),
+  constraint interview_feedback_rating_valid check (rating is null or rating between 1 and 5),
+  constraint interview_feedback_recommendation_valid check (recommendation in ('strong_yes', 'yes', 'neutral', 'no', 'strong_no'))
+);
+
 create index users_role_active_idx on public.users (role, is_active);
 create index auth_sessions_user_active_idx on public.auth_sessions (user_id, expires_at desc) where revoked_at is null;
 create index hr_accounts_name_idx on public.hr_accounts (lower(name));
@@ -188,6 +209,7 @@ create index interviews_active_start_idx on public.interviews (starts_at desc) w
 create index interview_managers_manager_idx on public.interview_managers (manager_id, interview_id);
 create index interview_notifications_status_idx on public.interview_notifications (status, created_at desc);
 create index availability_links_active_idx on public.availability_links (expires_at) where revoked_at is null;
+create index interview_feedback_interview_idx on public.interview_feedback (interview_id, updated_at desc);
 
 create or replace function public.set_updated_at()
 returns trigger language plpgsql set search_path = public as $$
@@ -203,6 +225,7 @@ create trigger departments_set_updated_at before update on public.departments fo
 create trigger managers_set_updated_at before update on public.managers for each row execute function public.set_updated_at();
 create trigger candidates_set_updated_at before update on public.candidates for each row execute function public.set_updated_at();
 create trigger interviews_set_updated_at before update on public.interviews for each row execute function public.set_updated_at();
+create trigger interview_feedback_set_updated_at before update on public.interview_feedback for each row execute function public.set_updated_at();
 
 create or replace function public.prevent_manager_interview_overlap()
 returns trigger language plpgsql set search_path = public as $$
