@@ -11,6 +11,7 @@ const availabilityLinkController = require('../controllers/availabilityLinkContr
 const reportController = require('../controllers/reportController');
 const settingsController = require('../controllers/settingsController');
 const scorecards = require('../controllers/scorecardController');
+const { requireScorecardTemplates } = require('../middleware/scorecardFeatureMiddleware');
 
 const router = express.Router();
 router.use(authMiddleware, authorize('hr'));
@@ -35,8 +36,8 @@ router.put('/interviews/:id/feedback/:managerId', interviewController.saveFeedba
 router.delete('/availability-links/:linkId', availabilityLinkController.revoke);
 router.get('/dashboard', dashboardController.summary);
 router.get('/settings/features', settingsController.features);
-router.route('/scorecard-templates').get(scorecards.list).post(scorecards.create);
-router.route('/scorecard-templates/:id').patch(scorecards.update).delete(scorecards.remove);
+router.route('/scorecard-templates').get(requireScorecardTemplates, scorecards.list).post(requireScorecardTemplates, scorecards.create);
+router.route('/scorecard-templates/:id').patch(requireScorecardTemplates, scorecards.update).delete(requireScorecardTemplates, scorecards.remove);
 router.get('/reports/interviews.csv', reportController.csv);
 router.get('/reports/interviews.xlsx', reportController.xlsx);
 router.route('/departments').get(departmentController.list).post(departmentController.create);

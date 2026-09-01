@@ -38,7 +38,8 @@ create table public.system_settings (
 
 insert into public.system_settings (key, value) values
   ('availability_links_enabled', 'false'::jsonb),
-  ('email_notifications_enabled', 'false'::jsonb);
+  ('email_notifications_enabled', 'false'::jsonb),
+  ('scorecard_templates_enabled', 'false'::jsonb);
 
 create table public.audit_logs (
   id uuid primary key default gen_random_uuid(),

@@ -139,6 +139,10 @@ async function loadFeatureSettings() {
   try {
     const settings = await API.request('/hr/settings/features');
     document.body.classList.toggle('availability-links-enabled', settings.availabilityLinksEnabled === true);
+    document.querySelector('[data-section="scorecards"]').hidden = settings.scorecardTemplatesEnabled !== true;
+    document.querySelector('[data-view="scorecards"]').hidden = settings.scorecardTemplatesEnabled !== true;
+    document.querySelector('#interview-scorecard-template').closest('.col-12').hidden = settings.scorecardTemplatesEnabled !== true;
+    if (settings.scorecardTemplatesEnabled === true) loadScorecards();
   } catch (_error) { document.body.classList.remove('availability-links-enabled'); }
 }
 function openDepartment(item) {
@@ -630,4 +634,4 @@ document.addEventListener('click', async (event) => {
   if (edit) { const item = state.scorecards.find((entry) => entry.id === edit.dataset.editScorecard); if (!item) return; setValue('#scorecard-id', item.id); setValue('#scorecard-name', item.name); setValue('#scorecard-description', item.description || ''); setValue('#scorecard-items', item.items.map((entry) => `${entry.name} | ${entry.weight}`).join('\n')); return; }
   if (remove && confirm('確定停用這份評分表模板？')) { try { await API.request(`/hr/scorecard-templates/${remove.dataset.deleteScorecard}`, { method: 'DELETE' }); notify('評分表模板已停用。'); loadScorecards(); } catch (error) { notify(error.message, 'danger'); } }
 });
-if (hrUser) { if (location.hash === '#timezone') location.replace('/timezone/'); else { const start = new Date(); const end = new Date(); end.setDate(end.getDate() + 30); setValue('#match-from', start.toISOString().slice(0, 10)); setValue('#match-to', end.toISOString().slice(0, 10)); setupInterviewCalendar(); updateTaiwanClock(); setInterval(updateTaiwanClock, 60_000); loadFeatureSettings(); loadDepartments(); loadScorecards(); loadProfile(); showSection(currentAppView() || location.hash.slice(1) || 'dashboard'); } }
+if (hrUser) { if (location.hash === '#timezone') location.replace('/timezone/'); else { const start = new Date(); const end = new Date(); end.setDate(end.getDate() + 30); setValue('#match-from', start.toISOString().slice(0, 10)); setValue('#match-to', end.toISOString().slice(0, 10)); setupInterviewCalendar(); updateTaiwanClock(); setInterval(updateTaiwanClock, 60_000); loadFeatureSettings(); loadDepartments(); loadProfile(); showSection(currentAppView() || location.hash.slice(1) || 'dashboard'); } }
