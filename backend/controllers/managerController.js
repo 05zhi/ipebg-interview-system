@@ -1,6 +1,7 @@
 const { query } = require('../config/database');
 const { isUuid } = require('../services/validation');
 const { updateClause } = require('../services/sql');
+const { audit } = require('../services/auditService');
 
 const selectManager = `select m.id, m.name, m.email, m.notes, m.is_active, m.created_at, m.updated_at,
   json_build_object('id', d.id, 'name', d.name) as department
@@ -55,7 +56,8 @@ async function create(req, res, next) {
     const result = await query(`insert into public.managers (name, email, department_id, notes, created_by)
       values ($1, $2, $3, $4, $5) returning id`,
       [payload.data.name, payload.data.email, payload.data.department_id, payload.data.notes, req.user.id]);
-    res.status(201).json({ manager: await findManager(result.rows[0].id) });
+    const manager = await findManager(result.rows[0].id); await audit(req, 'create', 'manager', manager.id, { name: manager.name });
+    res.status(201).json({ manager });
   } catch (error) { next(error); }
 }
 
@@ -68,7 +70,8 @@ async function update(req, res, next) {
     const update = updateClause(payload.data, ['name', 'email', 'notes', 'is_active', 'department_id']);
     const result = await query(`update public.managers set ${update.clause} where id = $${update.values.length + 1} returning id`, [...update.values, req.params.id]);
     if (!result.rowCount) return res.status(404).json({ message: '找不到主管。' });
-    res.json({ manager: await findManager(req.params.id) });
+    const manager = await findManager(req.params.id); await audit(req, 'update', 'manager', manager.id, { fields: Object.keys(payload.data) });
+    res.json({ manager });
   } catch (error) { next(error); }
 }
 
@@ -77,7 +80,7 @@ async function remove(req, res, next) {
     if (!isUuid(req.params.id)) return res.status(400).json({ message: '主管 ID 格式錯誤。' });
     const result = await query('update public.managers set is_active = false where id = $1 returning id', [req.params.id]);
     if (!result.rowCount) return res.status(404).json({ message: '找不到主管。' });
-    res.status(204).end();
+    await audit(req, 'deactivate', 'manager', req.params.id); res.status(204).end();
   } catch (error) { next(error); }
 }
 

@@ -3,6 +3,7 @@ const { query, transaction } = require('../config/database');
 const { isUuid } = require('../services/validation');
 const { managerSlots, candidateSlots } = require('./availabilityController');
 const { availabilityLinksEnabled } = require('./settingsController');
+const { audit } = require('../services/auditService');
 
 const resources = {
   manager: { table: 'managers', key: 'manager_id', slotTable: 'manager_available_slots', handler: managerSlots, label: '主管' },
@@ -31,6 +32,7 @@ function create(type) {
           returning id, expires_at, created_at`, [tokenHash(token), type, owner.id, expiresAt, req.user.id])).rows[0];
       });
       const baseUrl = String(process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
+      await audit(req, 'create', 'availability_link', link.id, { subjectType: type, subjectId: owner.id, expiresAt });
       res.status(201).json({ link: { ...link, url: `${baseUrl}/availability/?token=${token}`, subject: { id: owner.id, name: owner.name, type } } });
     } catch (error) { next(error); }
   };
@@ -41,7 +43,7 @@ async function revoke(req, res, next) {
     if (!isUuid(req.params.linkId)) return res.status(400).json({ message: '連結 ID 格式錯誤。' });
     const result = await query('update public.availability_links set revoked_at = now() where id = $1 and revoked_at is null returning id', [req.params.linkId]);
     if (!result.rowCount) return res.status(404).json({ message: '找不到有效連結。' });
-    res.status(204).end();
+    await audit(req, 'revoke', 'availability_link', req.params.linkId); res.status(204).end();
   } catch (error) { next(error); }
 }
 

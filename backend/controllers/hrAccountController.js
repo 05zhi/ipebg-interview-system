@@ -2,6 +2,7 @@ const bcrypt = require('bcrypt');
 const { query, transaction } = require('../config/database');
 const { isUuid } = require('../services/validation');
 const { updateClause } = require('../services/sql');
+const { audit } = require('../services/auditService');
 const selectAccount = `select h.id, h.name, h.email, h.created_at, h.updated_at,
   json_build_object('id', u.id, 'username', u.username, 'role', u.role, 'is_active', u.is_active, 'created_at', u.created_at) as user
   from public.hr_accounts h join public.users u on u.id = h.user_id`;
@@ -21,7 +22,7 @@ async function create(req, res, next) {
         values ($1, $2, $3) returning id, name, email, created_at, updated_at`, [user.id, name, email])).rows[0];
       return { ...profile, user };
     });
-    res.status(201).json({ account });
+    await audit(req, 'create', 'hr_account', account.id, { username: account.user.username, name: account.name }); res.status(201).json({ account });
   } catch (error) { if (error.code === '23505') return res.status(409).json({ message: 'Username 已被使用。' }); next(error); }
 }
 async function update(req, res, next) {
@@ -44,8 +45,9 @@ async function update(req, res, next) {
         await client.query('update public.auth_sessions set revoked_at = now() where user_id = $1 and revoked_at is null', [profile.user_id]);
       }
     });
-    res.json({ account: await findAccount(profile.id) });
+    const account = await findAccount(profile.id); await audit(req, 'update', 'hr_account', account.id, { fields: [...Object.keys(profileChanges), ...Object.keys(userChanges).filter((key) => key !== 'password_hash')] });
+    res.json({ account });
   } catch (error) { if (error.code === '23505') return res.status(409).json({ message: 'Username 已被使用。' }); next(error); }
 }
-async function remove(req, res, next) { try { if (!isUuid(req.params.id)) return res.status(400).json({ message: 'HR 帳號 ID 格式不正確。' }); const result = await query(`delete from public.users where role = 'hr' and id = (select user_id from public.hr_accounts where id = $1) returning id`, [req.params.id]); if (!result.rowCount) return res.status(404).json({ message: '找不到 HR 帳號。' }); res.status(204).end(); } catch (error) { next(error); } }
+async function remove(req, res, next) { try { if (!isUuid(req.params.id)) return res.status(400).json({ message: 'HR 帳號 ID 格式不正確。' }); const result = await query(`delete from public.users where role = 'hr' and id = (select user_id from public.hr_accounts where id = $1) returning id`, [req.params.id]); if (!result.rowCount) return res.status(404).json({ message: '找不到 HR 帳號。' }); await audit(req, 'delete', 'hr_account', req.params.id); res.status(204).end(); } catch (error) { next(error); } }
 module.exports = { list, create, update, remove };

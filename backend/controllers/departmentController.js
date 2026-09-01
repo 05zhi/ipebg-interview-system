@@ -1,6 +1,7 @@
 const { query } = require('../config/database');
 const { isUuid } = require('../services/validation');
 const { updateClause } = require('../services/sql');
+const { audit } = require('../services/auditService');
 
 const fields = 'id, name, notes, is_active, created_at, updated_at';
 
@@ -18,7 +19,7 @@ async function create(req, res, next) {
     if (!name) return res.status(400).json({ message: '請輸入部門名稱。' });
     const department = (await query(`insert into public.departments (name, notes, created_by) values ($1, $2, $3) returning ${fields}`,
       [name, String(req.body.notes || '').trim(), req.user.id])).rows[0];
-    res.status(201).json({ department });
+    await audit(req, 'create', 'department', department.id, { name: department.name }); res.status(201).json({ department });
   } catch (error) { if (error.code === '23505') return res.status(409).json({ message: '部門名稱已存在。' }); next(error); }
 }
 
@@ -37,7 +38,7 @@ async function update(req, res, next) {
     const department = (await query(`update public.departments set ${update.clause} where id = $${update.values.length + 1} returning ${fields}`,
       [...update.values, req.params.id])).rows[0];
     if (!department) return res.status(404).json({ message: '找不到部門。' });
-    res.json({ department });
+    await audit(req, 'update', 'department', department.id, { fields: Object.keys(changes) }); res.json({ department });
   } catch (error) { if (error.code === '23505') return res.status(409).json({ message: '部門名稱已存在。' }); next(error); }
 }
 
@@ -46,7 +47,7 @@ async function remove(req, res, next) {
     if (!isUuid(req.params.id)) return res.status(400).json({ message: '部門 ID 格式錯誤。' });
     const result = await query('update public.departments set is_active = false where id = $1 returning id', [req.params.id]);
     if (!result.rowCount) return res.status(404).json({ message: '找不到部門。' });
-    res.status(204).end();
+    await audit(req, 'deactivate', 'department', req.params.id); res.status(204).end();
   } catch (error) { next(error); }
 }
 

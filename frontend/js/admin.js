@@ -4,6 +4,10 @@ function notify(message, type = 'success') { document.querySelector('#alert').in
 function setupFeatureSettings() {
   document.querySelector('#accounts-table').closest('.panel').insertAdjacentHTML('beforebegin', '<section class="panel p-4 mb-4"><div class="d-flex justify-content-between align-items-center gap-3"><div><h2 class="h5 mb-1">HR 功能開關</h2><p class="text-muted-app mb-0">控制 HR 是否可產生主管／面試者的安全空檔填寫連結。</p></div><div class="form-check form-switch"><input class="form-check-input" id="availability-links-enabled" type="checkbox" role="switch"><label class="form-check-label" for="availability-links-enabled">開放填寫連結</label></div></div></section>');
 }
+function setupAuditLogs() {
+  document.querySelector('#accounts-table').closest('.panel').insertAdjacentHTML('afterend', '<section class="panel p-4 mt-4"><div class="d-flex justify-content-between align-items-center mb-3"><div><h2 class="h5 mb-1">稽核紀錄</h2><p class="text-muted-app mb-0">顯示最近的管理操作；不記錄密碼或安全權杖。</p></div><button class="btn btn-sm btn-outline-secondary" id="refresh-audit-logs">重新整理</button></div><div class="table-responsive"><table class="table mb-0"><thead><tr><th>時間</th><th>操作者</th><th>操作</th><th>項目</th><th>內容</th></tr></thead><tbody id="audit-log-table"></tbody></table></div></section>');
+}
+async function loadAuditLogs() { try { const logs = (await API.request('/admin/audit-logs?limit=100')).logs; document.querySelector('#audit-log-table').innerHTML = logs.map((log) => `<tr><td>${new Date(log.created_at).toLocaleString('zh-TW')}</td><td>${API.escape(log.actor?.username || '系統')}</td><td>${API.escape(log.action)}</td><td>${API.escape(log.entity_type)}${log.entity_id ? `<div class="small text-muted-app">${API.escape(log.entity_id)}</div>` : ''}</td><td><code class="small">${API.escape(JSON.stringify(log.details || {}))}</code></td></tr>`).join('') || '<tr><td colspan="5" class="empty">尚無紀錄。</td></tr>'; } catch (error) { notify(error.message, 'danger'); } }
 async function loadFeatureSettings() {
   try { const settings = await API.request('/admin/settings/features'); document.querySelector('#availability-links-enabled').checked = settings.availabilityLinksEnabled; }
   catch (error) { notify(error.message, 'danger'); }
@@ -26,4 +30,4 @@ document.addEventListener('change', async (event) => {
   catch (error) { event.target.checked = !event.target.checked; notify(error.message, 'danger'); }
   finally { event.target.disabled = false; }
 });
-if (administrator) { setupFeatureSettings(); loadFeatureSettings(); loadAccounts(); }
+if (administrator) { setupFeatureSettings(); setupAuditLogs(); loadFeatureSettings(); loadAccounts(); loadAuditLogs(); document.querySelector('#refresh-audit-logs').addEventListener('click', loadAuditLogs); }

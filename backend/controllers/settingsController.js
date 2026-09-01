@@ -1,4 +1,5 @@
 const { query } = require('../config/database');
+const { audit } = require('../services/auditService');
 
 async function availabilityLinksEnabled() {
   const row = (await query(`select value from public.system_settings where key = 'availability_links_enabled'`)).rows[0];
@@ -17,6 +18,7 @@ async function updateFeatures(req, res, next) {
       values ('availability_links_enabled', $1::jsonb, $2, now())
       on conflict (key) do update set value = excluded.value, updated_by = excluded.updated_by, updated_at = now()`,
     [JSON.stringify(req.body.availabilityLinksEnabled), req.user.id]);
+    await audit(req, 'update', 'system_setting', 'availability_links_enabled', { enabled: req.body.availabilityLinksEnabled });
     res.json({ availabilityLinksEnabled: req.body.availabilityLinksEnabled });
   } catch (error) { next(error); }
 }

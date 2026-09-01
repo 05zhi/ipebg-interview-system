@@ -1,5 +1,5 @@
 const hrUser = API.guard('hr');
-const state = { departments: [], managers: [], candidates: [], candidateInterviewStatuses: new Map(), interviews: [], matches: [], availability: { slots: [] }, interviewPage: 1, interviewPageSize: 10 };
+const state = { departments: [], managers: [], candidates: [], candidateInterviewStatuses: new Map(), interviews: [], matches: [], availability: { slots: [] }, scorecards: [], interviewPage: 1, interviewPageSize: 10 };
 const APP_ROUTES = Object.freeze({ dashboard: '/dashboard/', departments: '/departments/', managers: '/managers/', candidates: '/candidates/', matching: '/matching/', interviews: '/interviews/', account: '/account/' });
 function currentAppView() { return Object.entries(APP_ROUTES).find(([, route]) => location.pathname === route)?.[0] || ''; }
 const IPEBG_TIMEZONES = [
@@ -77,7 +77,15 @@ function setupWorkflowFields() {
   const editStatus = document.querySelector('#edit-interview-status');
   editStatus.innerHTML = workflowOptions(WORKFLOW_STATUSES, 'pending_confirmation');
   if (!document.querySelector('#interview-round-number')) editStatus.closest('.col-md-5').insertAdjacentHTML('afterend', `<div class="col-md-3"><label class="form-label" for="interview-round-number">面試輪次</label><input class="form-control" id="interview-round-number" type="number" min="1" max="20" value="1"></div><div class="col-md-4"><label class="form-label" for="interview-round-name">輪次名稱</label><input class="form-control" id="interview-round-name" maxlength="100" placeholder="例如：技術面談"></div><div class="col-md-5"><label class="form-label" for="interview-hiring-outcome">錄取結果</label><select class="form-select" id="interview-hiring-outcome">${workflowOptions(HIRING_OUTCOMES, 'pending')}</select></div>`);
+  if (!document.querySelector('#interview-scorecard-template')) editStatus.closest('.row').insertAdjacentHTML('beforeend', '<div class="col-12"><label class="form-label" for="interview-scorecard-template">評分表模板</label><select class="form-select" id="interview-scorecard-template"><option value="">不使用模板</option></select></div>');
 }
+function refreshScorecardSelects(selected = '') { const select = document.querySelector('#interview-scorecard-template'); if (select) select.innerHTML = `<option value="">不使用模板</option>${state.scorecards.map((item) => `<option value="${item.id}" ${item.id === selected ? 'selected' : ''}>${API.escape(item.name)}</option>`).join('')}`; }
+function setupScorecards() {
+  document.querySelector('#section-nav').insertAdjacentHTML('beforeend', '<button class="nav-link" data-section="scorecards"><i class="bi bi-clipboard-check me-2"></i>評分表模板</button>');
+  document.querySelector('[data-view="interviews"]').insertAdjacentHTML('afterend', '<section data-view="scorecards" hidden><header class="section-header"><div><p class="eyebrow">Scorecards</p><h1 class="h2 fw-bold">評分表模板</h1><p class="section-description">設定主管評分項目與權重；可在建立或編輯面試時套用。</p></div></header><div class="panel p-4 mb-4"><form id="scorecard-form" class="row g-3"><input type="hidden" id="scorecard-id"><div class="col-md-6"><label class="form-label" for="scorecard-name">模板名稱</label><input class="form-control" id="scorecard-name" maxlength="100" required></div><div class="col-md-6"><label class="form-label" for="scorecard-description">說明</label><input class="form-control" id="scorecard-description" maxlength="1000"></div><div class="col-12"><label class="form-label" for="scorecard-items">評分項目（每行：項目名稱 | 權重）</label><textarea class="form-control" id="scorecard-items" rows="5" required placeholder="專業能力 | 40&#10;溝通表達 | 30&#10;問題解決 | 30"></textarea></div><div class="col-12 text-end"><button class="btn btn-primary" type="submit">儲存模板</button></div></form></div><div class="panel"><div class="table-responsive"><table class="table mb-0"><thead><tr><th>模板</th><th>項目／權重</th><th class="text-end">操作</th></tr></thead><tbody id="scorecard-table"></tbody></table></div></div></section>');
+}
+function renderScorecards() { const table = document.querySelector('#scorecard-table'); if (!table) return; table.innerHTML = state.scorecards.map((item) => `<tr><td><strong>${API.escape(item.name)}</strong><div class="small text-muted-app">${API.escape(item.description || '')}</div></td><td>${item.items.map((entry) => `${API.escape(entry.name)} (${entry.weight})`).join('、')}</td><td class="text-end"><button class="btn btn-sm btn-outline-primary" data-edit-scorecard="${item.id}">編輯</button> <button class="btn btn-sm btn-outline-danger" data-delete-scorecard="${item.id}">停用</button></td></tr>`).join('') || empty(3, '尚未建立評分表模板。'); }
+async function loadScorecards() { try { state.scorecards = (await API.request('/hr/scorecard-templates')).templates; refreshScorecardSelects(); renderScorecards(); } catch (error) { notify(error.message, 'danger'); } }
 // Only a URL entered in the dedicated field gets an invisible marker. URLs
 // typed directly in the notes field remain ordinary notes text.
 function meetingUrlFromNotes(notes) { return String(notes || '').match(/\u200B(https?:\/\/[^\s]+)/i)?.[1] || ''; }
@@ -94,6 +102,7 @@ function showSection(name) {
   if (name === 'candidates') loadCandidates();
   if (name === 'matching') loadPeople();
   if (name === 'interviews') loadInterviews();
+  if (name === 'scorecards') loadScorecards();
   if (name === 'account') loadProfile();
 }
 
@@ -602,4 +611,23 @@ renderCalendarDay = function renderCalendarDayWithInterviewLocks() {
 function updateTaiwanClock() { const clock = document.querySelector('#taiwan-now'); if (clock) clock.textContent = new Intl.DateTimeFormat('zh-TW', { timeZone: TAIWAN_TIMEZONE, month: '2-digit', day: '2-digit', weekday: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date()); }
 setupWorkflowFields();
 setupReportDashboard();
-if (hrUser) { if (location.hash === '#timezone') location.replace('/timezone/'); else { const start = new Date(); const end = new Date(); end.setDate(end.getDate() + 30); setValue('#match-from', start.toISOString().slice(0, 10)); setValue('#match-to', end.toISOString().slice(0, 10)); setupInterviewCalendar(); updateTaiwanClock(); setInterval(updateTaiwanClock, 60_000); loadFeatureSettings(); loadDepartments(); loadProfile(); showSection(currentAppView() || location.hash.slice(1) || 'dashboard'); } }
+setupScorecards();
+document.querySelector('#interview-form').addEventListener('submit', async (event) => {
+  event.preventDefault(); event.stopImmediatePropagation();
+  const id = value('#interview-id');
+  const payload = { candidateId: value('#interview-candidate'), managerIds: value('#interview-managers').split(','), startsAt: value('#interview-start'), endsAt: value('#interview-end'), status: value('#edit-interview-status'), notes: value('#interview-notes'), roundNumber: Number(value('#interview-round-number')), roundName: value('#interview-round-name'), hiringOutcome: value('#interview-hiring-outcome'), scorecardTemplateId: value('#interview-scorecard-template') || null };
+  try { await API.request(id ? `/hr/interviews/${id}` : '/hr/interviews', { method: id ? 'PATCH' : 'POST', body: JSON.stringify(payload) }); modal('#interview-modal').hide(); notify('面試已儲存。'); showSection('interviews'); } catch (error) { notify(error.message, 'danger'); }
+}, true);
+document.addEventListener('submit', async (event) => {
+  if (!event.target.matches('#scorecard-form')) return;
+  event.preventDefault();
+  const items = value('#scorecard-items').split('\n').map((line) => line.trim()).filter(Boolean).map((line) => { const [name, weight] = line.split('|'); return { name: name?.trim(), weight: Number(weight) }; });
+  const id = value('#scorecard-id');
+  try { await API.request(id ? `/hr/scorecard-templates/${id}` : '/hr/scorecard-templates', { method: id ? 'PATCH' : 'POST', body: JSON.stringify({ name: value('#scorecard-name'), description: value('#scorecard-description'), items }) }); event.target.reset(); setValue('#scorecard-id'); notify('評分表模板已儲存。'); loadScorecards(); } catch (error) { notify(error.message, 'danger'); }
+});
+document.addEventListener('click', async (event) => {
+  const edit = event.target.closest('[data-edit-scorecard]'); const remove = event.target.closest('[data-delete-scorecard]');
+  if (edit) { const item = state.scorecards.find((entry) => entry.id === edit.dataset.editScorecard); if (!item) return; setValue('#scorecard-id', item.id); setValue('#scorecard-name', item.name); setValue('#scorecard-description', item.description || ''); setValue('#scorecard-items', item.items.map((entry) => `${entry.name} | ${entry.weight}`).join('\n')); return; }
+  if (remove && confirm('確定停用這份評分表模板？')) { try { await API.request(`/hr/scorecard-templates/${remove.dataset.deleteScorecard}`, { method: 'DELETE' }); notify('評分表模板已停用。'); loadScorecards(); } catch (error) { notify(error.message, 'danger'); } }
+});
+if (hrUser) { if (location.hash === '#timezone') location.replace('/timezone/'); else { const start = new Date(); const end = new Date(); end.setDate(end.getDate() + 30); setValue('#match-from', start.toISOString().slice(0, 10)); setValue('#match-to', end.toISOString().slice(0, 10)); setupInterviewCalendar(); updateTaiwanClock(); setInterval(updateTaiwanClock, 60_000); loadFeatureSettings(); loadDepartments(); loadScorecards(); loadProfile(); showSection(currentAppView() || location.hash.slice(1) || 'dashboard'); } }

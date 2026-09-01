@@ -38,6 +38,39 @@ create table public.system_settings (
 
 insert into public.system_settings (key, value) values ('availability_links_enabled', 'false'::jsonb);
 
+create table public.audit_logs (
+  id uuid primary key default gen_random_uuid(),
+  actor_id uuid references public.users(id) on delete set null,
+  actor_role public.system_role,
+  action text not null,
+  entity_type text not null,
+  entity_id text,
+  details jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now()
+);
+
+create table public.scorecard_templates (
+  id uuid primary key default gen_random_uuid(),
+  name text not null unique,
+  description text not null default '',
+  is_active boolean not null default true,
+  created_by uuid references public.users(id) on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint scorecard_templates_name_not_blank check (length(trim(name)) > 0)
+);
+
+create table public.scorecard_template_items (
+  id uuid primary key default gen_random_uuid(),
+  template_id uuid not null references public.scorecard_templates(id) on update cascade on delete cascade,
+  name text not null,
+  weight numeric(6,2) not null default 1,
+  position smallint not null,
+  constraint scorecard_template_items_name_not_blank check (length(trim(name)) > 0),
+  constraint scorecard_template_items_weight_valid check (weight > 0 and weight <= 100),
+  unique (template_id, position)
+);
+
 create table public.hr_accounts (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null unique references public.users(id) on update cascade on delete cascade,
@@ -136,6 +169,7 @@ create table public.interviews (
   round_number smallint not null default 1,
   round_name text,
   hiring_outcome text not null default 'pending',
+  scorecard_template_id uuid references public.scorecard_templates(id) on delete set null,
   archived_at timestamptz,
   created_by uuid references public.users(id) on delete set null,
   created_at timestamptz not null default now(),
@@ -202,8 +236,18 @@ create table public.interview_feedback (
   constraint interview_feedback_recommendation_valid check (recommendation in ('strong_yes', 'yes', 'neutral', 'no', 'strong_no'))
 );
 
+create table public.interview_feedback_scores (
+  feedback_id uuid not null references public.interview_feedback(id) on update cascade on delete cascade,
+  template_item_id uuid not null references public.scorecard_template_items(id) on update cascade on delete restrict,
+  score smallint not null check (score between 1 and 5),
+  primary key (feedback_id, template_item_id)
+);
+
 create index users_role_active_idx on public.users (role, is_active);
 create index auth_sessions_user_active_idx on public.auth_sessions (user_id, expires_at desc) where revoked_at is null;
+create index scorecard_template_items_template_idx on public.scorecard_template_items (template_id, position);
+create index audit_logs_created_idx on public.audit_logs (created_at desc);
+create index audit_logs_entity_idx on public.audit_logs (entity_type, entity_id, created_at desc);
 create index hr_accounts_name_idx on public.hr_accounts (lower(name));
 create index departments_active_name_idx on public.departments (is_active, lower(name));
 create index managers_active_name_idx on public.managers (is_active, lower(name));
@@ -235,6 +279,7 @@ create trigger managers_set_updated_at before update on public.managers for each
 create trigger candidates_set_updated_at before update on public.candidates for each row execute function public.set_updated_at();
 create trigger interviews_set_updated_at before update on public.interviews for each row execute function public.set_updated_at();
 create trigger interview_feedback_set_updated_at before update on public.interview_feedback for each row execute function public.set_updated_at();
+create trigger scorecard_templates_set_updated_at before update on public.scorecard_templates for each row execute function public.set_updated_at();
 
 create or replace function public.prevent_manager_interview_overlap()
 returns trigger language plpgsql set search_path = public as $$

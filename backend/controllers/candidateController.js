@@ -1,6 +1,7 @@
 const { query } = require('../config/database');
 const { isUuid } = require('../services/validation');
 const { updateClause } = require('../services/sql');
+const { audit } = require('../services/auditService');
 
 const selectCandidate = `select c.id, c.name, c.email, c.phone, c.position, c.notes, c.is_active, c.created_at, c.updated_at,
   json_build_object('id', d.id, 'name', d.name) as department
@@ -59,7 +60,8 @@ async function create(req, res, next) {
     const result = await query(`insert into public.candidates (name, email, phone, position, department_id, notes, created_by)
       values ($1, $2, $3, $4, $5, $6, $7) returning id`,
       [payload.data.name, payload.data.email, payload.data.phone, payload.data.position, payload.data.department_id, payload.data.notes, req.user.id]);
-    res.status(201).json({ candidate: await findCandidate(result.rows[0].id) });
+    const candidate = await findCandidate(result.rows[0].id); await audit(req, 'create', 'candidate', candidate.id, { name: candidate.name, position: candidate.position });
+    res.status(201).json({ candidate });
   } catch (error) { next(error); }
 }
 
@@ -72,7 +74,8 @@ async function update(req, res, next) {
     const update = updateClause(payload.data, ['name', 'email', 'phone', 'position', 'notes', 'is_active', 'department_id']);
     const result = await query(`update public.candidates set ${update.clause} where id = $${update.values.length + 1} returning id`, [...update.values, req.params.id]);
     if (!result.rowCount) return res.status(404).json({ message: '找不到候選人。' });
-    res.json({ candidate: await findCandidate(req.params.id) });
+    const candidate = await findCandidate(req.params.id); await audit(req, 'update', 'candidate', candidate.id, { fields: Object.keys(payload.data) });
+    res.json({ candidate });
   } catch (error) { next(error); }
 }
 
@@ -81,7 +84,7 @@ async function remove(req, res, next) {
     if (!isUuid(req.params.id)) return res.status(400).json({ message: '候選人 ID 格式錯誤。' });
     const result = await query('update public.candidates set is_active = false where id = $1 returning id', [req.params.id]);
     if (!result.rowCount) return res.status(404).json({ message: '找不到候選人。' });
-    res.status(204).end();
+    await audit(req, 'deactivate', 'candidate', req.params.id); res.status(204).end();
   } catch (error) { next(error); }
 }
 

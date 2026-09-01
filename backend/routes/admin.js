@@ -1,6 +1,7 @@
 const router = require('express').Router();
 const accounts = require('../controllers/hrAccountController');
 const settings = require('../controllers/settingsController');
+const audit = require('../controllers/auditController');
 const { authMiddleware, authorize } = require('../middleware/authMiddleware');
 
 router.use(authMiddleware, authorize('administrator'));
@@ -10,5 +11,6 @@ router.patch('/hr-accounts/:id', accounts.update);
 router.delete('/hr-accounts/:id', accounts.remove);
 router.get('/settings/features', settings.features);
 router.patch('/settings/features', settings.updateFeatures);
+router.get('/audit-logs', audit.list);
 
 module.exports = router;
