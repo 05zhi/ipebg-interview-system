@@ -396,6 +396,7 @@ h1, h2, h3, h4, h5, h6 { color: var(--ink); font-weight: 650; letter-spacing: -.
 .time-check input:checked + label small { color: rgb(255 255 255 / 82%); }
 .time-check input:checked + label { color: #fff; background: var(--brand-500); border-color: var(--brand-500); }
 .time-check input:disabled + label { color: var(--muted); background: #eef2f6; cursor: not-allowed; }
+body:not(.availability-links-enabled) [data-availability-link] { display: none !important; }
 
 /* Tablet */
 @media (max-width: 991.98px) {

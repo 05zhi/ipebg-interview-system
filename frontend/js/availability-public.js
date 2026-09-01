@@ -15,6 +15,7 @@ function localParts(iso, timezone) {
     timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
   }).formatToParts(new Date(iso)).filter((part) => part.type !== 'literal').map((part) => [part.type, part.value]));
 }
+function endTime(time) { const [hour, minute] = time.split(':').map(Number); const total = hour * 60 + minute + 30; return `${String(Math.floor(total / 60) % 24).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`; }
 
 function renderTimes() {
   const date = document.querySelector('#availability-date').value;
@@ -26,7 +27,7 @@ function renderTimes() {
   }));
   const times = [];
   for (let hour = 0; hour < 24; hour += 1) for (const minute of ['00', '30']) times.push(`${String(hour).padStart(2, '0')}:${minute}`);
-  document.querySelector('#availability-times').innerHTML = times.map((time) => `<div class="time-check"><input id="public-time-${time.replace(':', '')}" type="checkbox" value="${time}" ${selected.has(time) ? 'checked' : ''}><label for="public-time-${time.replace(':', '')}"><strong>${time}</strong></label></div>`).join('');
+  document.querySelector('#availability-times').innerHTML = times.map((time) => `<div class="time-check"><input id="public-time-${time.replace(':', '')}" type="checkbox" value="${time}" ${selected.has(time) ? 'checked' : ''}><label for="public-time-${time.replace(':', '')}"><strong>${time}–${endTime(time)}</strong></label></div>`).join('');
 }
 
 async function request(path, options = {}) {
@@ -63,7 +64,7 @@ form.addEventListener('submit', async (event) => {
     };
     await request(`/api/availability/${encodeURIComponent(token)}/day`, { method: 'PUT', body: JSON.stringify(payload) });
     const refreshed = await request(`/api/availability/${encodeURIComponent(token)}`); savedSlots = refreshed.slots;
-    renderTimes(); showMessage('這一天的可面試時間已儲存。');
+    renderTimes(); window.alert('這一天的可面試時間已儲存。');
   } catch (error) { showMessage(error.message, 'danger'); }
   finally { button.disabled = false; }
 });

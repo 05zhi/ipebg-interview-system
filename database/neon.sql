@@ -29,6 +29,15 @@ create table public.auth_sessions (
   created_at timestamptz not null default now()
 );
 
+create table public.system_settings (
+  key text primary key,
+  value jsonb not null,
+  updated_by uuid references public.users(id) on delete set null,
+  updated_at timestamptz not null default now()
+);
+
+insert into public.system_settings (key, value) values ('availability_links_enabled', 'false'::jsonb);
+
 create table public.hr_accounts (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null unique references public.users(id) on update cascade on delete cascade,

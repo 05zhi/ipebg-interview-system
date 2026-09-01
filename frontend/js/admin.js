@@ -1,6 +1,13 @@
 const administrator = API.guard('administrator');
 let accounts = [];
 function notify(message, type = 'success') { document.querySelector('#alert').innerHTML = `<div class="alert alert-${type}">${API.escape(message)}</div>`; }
+function setupFeatureSettings() {
+  document.querySelector('#accounts-table').closest('.panel').insertAdjacentHTML('beforebegin', '<section class="panel p-4 mb-4"><div class="d-flex justify-content-between align-items-center gap-3"><div><h2 class="h5 mb-1">HR 功能開關</h2><p class="text-muted-app mb-0">控制 HR 是否可產生主管／面試者的安全空檔填寫連結。</p></div><div class="form-check form-switch"><input class="form-check-input" id="availability-links-enabled" type="checkbox" role="switch"><label class="form-check-label" for="availability-links-enabled">開放填寫連結</label></div></div></section>');
+}
+async function loadFeatureSettings() {
+  try { const settings = await API.request('/admin/settings/features'); document.querySelector('#availability-links-enabled').checked = settings.availabilityLinksEnabled; }
+  catch (error) { notify(error.message, 'danger'); }
+}
 async function loadAccounts() { document.querySelector('#accounts-table').innerHTML = Array.from({ length: 4 }, () => '<tr class="skeleton-row"><td colspan="6"><span class="skeleton-line"></span></td></tr>').join(''); try { const result = await API.request('/admin/hr-accounts'); accounts = result.accounts; render(); } catch (error) { notify(error.message, 'danger'); } }
 function render() {
   const active = accounts.filter((account) => account.user?.is_active).length;
@@ -12,4 +19,11 @@ function setForm(account = null) { document.querySelector('#account-form').reset
 document.querySelector('#account-modal').addEventListener('show.bs.modal', (event) => { if (event.relatedTarget) setForm(); });
 document.querySelector('#account-form').addEventListener('submit', async (event) => { event.preventDefault(); const id = document.querySelector('#account-id').value; const payload = { name: document.querySelector('#name').value, username: document.querySelector('#username').value, email: document.querySelector('#email').value }; if (document.querySelector('#password').value) payload.password = document.querySelector('#password').value; try { await API.request(id ? `/admin/hr-accounts/${id}` : '/admin/hr-accounts', { method: id ? 'PATCH' : 'POST', body: JSON.stringify(payload) }); bootstrap.Modal.getInstance(document.querySelector('#account-modal')).hide(); notify('HR 帳號已儲存。'); loadAccounts(); } catch (error) { document.querySelector('#form-alert').innerHTML = `<div class="alert alert-danger">${API.escape(error.message)}</div>`; } });
 document.querySelector('#accounts-table').addEventListener('click', async (event) => { const edit = event.target.closest('[data-edit]'); const remove = event.target.closest('[data-delete]'); if (edit) return openEdit(edit.dataset.edit); if (remove && confirm('確定刪除此 HR 帳號？')) { try { await API.request(`/admin/hr-accounts/${remove.dataset.delete}`, { method: 'DELETE' }); notify('HR 帳號已刪除。'); loadAccounts(); } catch (error) { notify(error.message, 'danger'); } } });
-if (administrator) loadAccounts();
+document.addEventListener('change', async (event) => {
+  if (!event.target.matches('#availability-links-enabled')) return;
+  event.target.disabled = true;
+  try { await API.request('/admin/settings/features', { method: 'PATCH', body: JSON.stringify({ availabilityLinksEnabled: event.target.checked }) }); notify(`安全空檔填寫連結已${event.target.checked ? '開啟' : '關閉'}。`); }
+  catch (error) { event.target.checked = !event.target.checked; notify(error.message, 'danger'); }
+  finally { event.target.disabled = false; }
+});
+if (administrator) { setupFeatureSettings(); loadFeatureSettings(); loadAccounts(); }

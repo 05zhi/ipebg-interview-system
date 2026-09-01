@@ -43,6 +43,10 @@ async function main() {
     const adminLogin = adminLoginResult.body;
     assert(adminLogin.role === 'administrator', 'administrator role missing'); assertions += 1;
     const adminToken = sessionCookie(adminLoginResult.response);
+    const defaultFeatures = (await api('/admin/settings/features', { token: adminToken })).body;
+    assert(defaultFeatures.availabilityLinksEnabled === false, 'availability links must be disabled by default'); assertions += 1;
+    const enabledFeatures = (await api('/admin/settings/features', { token: adminToken, method: 'PATCH', body: JSON.stringify({ availabilityLinksEnabled: true }) })).body;
+    assert(enabledFeatures.availabilityLinksEnabled === true, 'administrator could not enable availability links'); assertions += 1;
     for (let attempt = 0; attempt < 5; attempt += 1) {
       await api('/auth/login', { method: 'POST', expected: 401, body: JSON.stringify({ username: `${prefix}_brute`, password: 'wrong-password' }) });
     }
@@ -70,6 +74,7 @@ async function main() {
     let hrLogin = hrLoginResult.body;
     let hrToken = sessionCookie(hrLoginResult.response);
     await api('/admin/hr-accounts', { token: hrToken, expected: 403 });
+    await api('/admin/settings/features', { token: hrToken, method: 'PATCH', expected: 403, body: JSON.stringify({ availabilityLinksEnabled: false }) });
     const me = (await api('/auth/me', { token: hrToken })).body;
     assert(me.profile.name === 'Updated Test HR', 'updated HR profile not returned'); assertions += 1;
     await api('/auth/profile', { token: hrToken, method: 'PATCH', expected: 400, body: JSON.stringify({ name: '', username: `${prefix}_hr` }) });

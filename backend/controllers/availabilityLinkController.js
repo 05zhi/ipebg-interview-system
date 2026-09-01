@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const { query, transaction } = require('../config/database');
 const { isUuid } = require('../services/validation');
 const { managerSlots, candidateSlots } = require('./availabilityController');
+const { availabilityLinksEnabled } = require('./settingsController');
 
 const resources = {
   manager: { table: 'managers', key: 'manager_id', slotTable: 'manager_available_slots', handler: managerSlots, label: '主管' },
@@ -13,6 +14,7 @@ function tokenHash(token) { return crypto.createHash('sha256').update(String(tok
 function create(type) {
   return async (req, res, next) => {
     try {
+      if (!await availabilityLinksEnabled()) return res.status(403).json({ message: '安全空檔填寫連結功能目前由 Administrator 關閉。' });
       const resource = resources[type];
       if (!isUuid(req.params.id)) return res.status(400).json({ message: `${resource.label} ID 格式錯誤。` });
       const days = Number(req.body.expiresInDays ?? 7);
@@ -44,6 +46,7 @@ async function revoke(req, res, next) {
 }
 
 async function resolveLink(token) {
+  if (!await availabilityLinksEnabled()) return null;
   if (!/^[A-Za-z0-9_-]{40,64}$/.test(String(token || ''))) return null;
   return (await query(`select l.id, l.subject_type, l.manager_id, l.candidate_id, l.expires_at,
     case when l.subject_type = 'manager' then m.name else c.name end as name

@@ -97,7 +97,8 @@ Google Calendar OAuth 應用程式憑證。
 
 `PUBLIC_BASE_URL` 是安全空檔連結對外顯示的網站根網址。本機使用 `http://localhost:3000`；正式部署時需改成
 HTTPS 網址。系統只保存隨機 token 的 SHA-256 雜湊，原始 token 只在建立時回傳一次；有效期為 1–30 天，
-替同一人產生新連結時會自動撤銷仍有效的舊連結。
+替同一人產生新連結時會自動撤銷仍有效的舊連結。此功能預設關閉，Administrator 可在控制台的
+「HR 功能開關」手動開啟。
 
 開啟 <http://localhost:3000>。健康檢查網址為 <http://localhost:3000/api/health>。
 
