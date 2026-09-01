@@ -4,6 +4,16 @@
 
 ## 網站功能
 
+### 目前預設關閉的功能
+
+以下功能已完成並保留資料與設定，但目前預設關閉；Administrator 可在「帳號管理」頁的系統功能開關手動啟用：
+
+- **安全空檔填寫連結**：關閉時 HR 不會看到填寫連結按鈕，既有公開連結也無法使用。
+- **Email、ICS 與面試提醒**：關閉時不會寄出建立面試通知、ICS 附件、手動重寄或排程提醒；SMTP 設定會保留。
+- **評分表模板**：關閉時 HR 不會看到模板管理與面試套用欄位，相關 API 也會拒絕操作。
+
+啟用 Email 功能仍需先在 `backend/.env` 填妥 SMTP 設定；功能開關只控制是否實際寄送。
+
 ### 使用者角色與權限
 
 系統只有兩種可登入角色，主管與面試者不需要建立帳號：
@@ -23,7 +33,7 @@ Administrator 可執行以下操作：
 - 修改 HR 姓名、Username、Email、密碼與啟用狀態。
 - 停用或刪除不再使用的 HR 帳號；停用或重設密碼時會撤銷既有 Session。
 - 查看 HR 帳號總數及啟用帳號數量。
-- 在「HR 功能開關」開啟或關閉「安全空檔填寫連結」。
+- 在「系統功能開關」開啟或關閉「安全空檔填寫連結」、「Email 通知與面試提醒」及「評分表模板」。
 
 安全空檔填寫連結預設關閉。關閉時，HR 介面不顯示「填寫連結」按鈕、HR 無法透過 API 建立新連結，
 既有公開連結也無法繼續使用。
@@ -90,9 +100,15 @@ HR 可從列表或月曆查看面試、搜尋面試者／主管／部門／備�
 - 評語與主管／面試關聯綁定；不是該場面試參與者的主管不能建立評語。
 - 重複儲存同一主管評語時會更新原紀錄，不會產生重複資料。
 
+### 評分表模板（預設關閉）
+
+- Administrator 開啟功能後，HR 可建立、編輯或停用含 1–20 個項目與權重的模板。
+- 建立面試時可選擇已啟用模板；主管評語可儲存各項 1–5 分。
+- 功能關閉時，模板管理頁、面試套用欄位與相關 API 都會隱藏或拒絕存取。
+
 ### Email、ICS 與面試提醒
 
-Email 功能預設關閉；設定 SMTP 並開啟後：
+Email 功能預設關閉；設定 SMTP 並由 Administrator 在「系統功能開關」開啟後：
 
 - 建立面試時，系統寄送邀請給有 Email 的面試者及參與主管。
 - Email 會包含面試時間、備註、會議連結及 `.ics` 行事曆附件。
@@ -172,6 +188,10 @@ database/
     012_secure_availability_links.sql 限時安全空檔連結
     013_interview_workflow.sql  狀態、輪次、評語與錄取結果
     014_feature_settings.sql    Administrator 功能開關
+    015_audit_logs.sql          管理操作稽核紀錄
+    016_scorecard_templates.sql 評分表模板與逐項評分
+    017_email_notification_setting.sql Email 通知功能開關
+    018_scorecard_template_setting.sql 評分表模板功能開關
 ```
 
 ## 本機設定
@@ -298,6 +318,8 @@ npm run admin:reset-password
 - `GET /api/hr/reports/interviews.csv`
 - `GET /api/hr/reports/interviews.xlsx`
 - `GET /api/hr/settings/features`
+- `GET|POST /api/hr/scorecard-templates`（功能開啟時）
+- `PATCH|DELETE /api/hr/scorecard-templates/:id`（功能開啟時）
 - `DELETE /api/hr/availability-links/:linkId`
 - `GET /api/availability/:token`
 - `PUT /api/availability/:token/day`
