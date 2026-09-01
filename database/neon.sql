@@ -36,7 +36,9 @@ create table public.system_settings (
   updated_at timestamptz not null default now()
 );
 
-insert into public.system_settings (key, value) values ('availability_links_enabled', 'false'::jsonb);
+insert into public.system_settings (key, value) values
+  ('availability_links_enabled', 'false'::jsonb),
+  ('email_notifications_enabled', 'false'::jsonb);
 
 create table public.audit_logs (
   id uuid primary key default gen_random_uuid(),

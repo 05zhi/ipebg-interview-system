@@ -26,8 +26,19 @@ document.querySelector('#accounts-table').addEventListener('click', async (event
 document.addEventListener('change', async (event) => {
   if (!event.target.matches('#availability-links-enabled')) return;
   event.target.disabled = true;
-  try { await API.request('/admin/settings/features', { method: 'PATCH', body: JSON.stringify({ availabilityLinksEnabled: event.target.checked }) }); notify(`安全空檔填寫連結已${event.target.checked ? '開啟' : '關閉'}。`); }
+  try { await API.request('/admin/settings/features', { method: 'PATCH', body: JSON.stringify({ availabilityLinksEnabled: event.target.checked, emailNotificationsEnabled: document.querySelector('#email-notifications-enabled').checked }) }); notify(`安全空檔填寫連結已${event.target.checked ? '開啟' : '關閉'}。`); }
   catch (error) { event.target.checked = !event.target.checked; notify(error.message, 'danger'); }
   finally { event.target.disabled = false; }
 });
-if (administrator) { setupFeatureSettings(); setupAuditLogs(); loadFeatureSettings(); loadAccounts(); loadAuditLogs(); document.querySelector('#refresh-audit-logs').addEventListener('click', loadAuditLogs); }
+function setupEmailNotificationSetting() {
+  document.querySelector('#availability-links-enabled').closest('.form-check').insertAdjacentHTML('afterend', '<div class="form-check form-switch mt-3"><input class="form-check-input" id="email-notifications-enabled" type="checkbox" role="switch"><label class="form-check-label" for="email-notifications-enabled">Email 通知與面試提醒</label><div class="small text-muted-app">關閉時不會寄出邀請信、ICS 或提醒信。</div></div>');
+}
+async function loadEmailNotificationSetting() { try { const settings = await API.request('/admin/settings/features'); document.querySelector('#email-notifications-enabled').checked = settings.emailNotificationsEnabled === true; } catch (error) { notify(error.message, 'danger'); } }
+document.addEventListener('change', async (event) => {
+  if (!event.target.matches('#email-notifications-enabled')) return;
+  event.target.disabled = true;
+  try { await API.request('/admin/settings/features', { method: 'PATCH', body: JSON.stringify({ availabilityLinksEnabled: document.querySelector('#availability-links-enabled').checked, emailNotificationsEnabled: event.target.checked }) }); notify(`Email 通知已${event.target.checked ? '開啟' : '關閉'}。`); }
+  catch (error) { event.target.checked = !event.target.checked; notify(error.message, 'danger'); }
+  finally { event.target.disabled = false; }
+});
+if (administrator) { setupFeatureSettings(); setupEmailNotificationSetting(); setupAuditLogs(); loadFeatureSettings(); loadEmailNotificationSetting(); loadAccounts(); loadAuditLogs(); document.querySelector('#refresh-audit-logs').addEventListener('click', loadAuditLogs); }

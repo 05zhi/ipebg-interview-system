@@ -3,6 +3,12 @@ const { query } = require('../config/database');
 
 const enabled = process.env.EMAIL_NOTIFICATIONS_ENABLED === 'true' || (process.env.NODE_ENV === 'test' && process.env.EMAIL_TRANSPORT === 'json');
 
+async function notificationsEnabled() {
+  if (process.env.NODE_ENV === 'test') return enabled;
+  const row = (await query(`select value from public.system_settings where key = 'email_notifications_enabled'`)).rows[0];
+  return enabled && row?.value === true;
+}
+
 function transporter() {
   if (!enabled) return null;
   if (process.env.EMAIL_TRANSPORT === 'json') return nodemailer.createTransport({ jsonTransport: true });
@@ -33,6 +39,7 @@ function recipients(interview) {
 }
 
 async function sendInterviewNotification(interview, notificationType = 'invitation') {
+  if (!await notificationsEnabled()) return { enabled: false, sent: 0, failed: 0 };
   const transport = transporter();
   if (!transport) return { enabled: false, sent: 0, failed: 0 };
   let sent = 0; let failed = 0;
@@ -65,7 +72,7 @@ async function sendInterviewNotification(interview, notificationType = 'invitati
 }
 
 async function sendDueReminders() {
-  if (!transporter()) return { enabled: false, interviews: 0 };
+  if (!await notificationsEnabled() || !transporter()) return { enabled: false, interviews: 0 };
   const configuredHours = Number(process.env.INTERVIEW_REMINDER_HOURS || 24);
   const hours = Number.isFinite(configuredHours) && configuredHours >= 1 ? configuredHours : 24;
   const result = await query(`select i.id, i.starts_at, i.ends_at, i.status, i.notes, i.meeting_url, i.meeting_provider,
