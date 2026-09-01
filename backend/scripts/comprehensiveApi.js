@@ -207,6 +207,14 @@ async function main() {
     assert(filtered.some((item) => item.id === interview.id), 'interview status/search filter failed'); assertions += 1;
     const dashboard = (await api('/hr/dashboard', { token: hrToken })).body;
     assert(Number.isInteger(dashboard.managerCount) && Number.isInteger(dashboard.candidateCount), 'dashboard counts invalid'); assertions += 1;
+    assert(Number.isFinite(dashboard.completionRate) && Number.isFinite(dashboard.averageSchedulingHours), 'dashboard report metrics invalid'); assertions += 1;
+    assert(dashboard.departmentCounts.some((item) => item.id === department.id && item.interview_count >= 1), 'department report counts invalid'); assertions += 1;
+    const csvResponse = await fetch(`${origin}/api/hr/reports/interviews.csv`, { headers: { Cookie: hrToken } });
+    const csvText = await csvResponse.text();
+    assert(csvResponse.status === 200 && csvResponse.headers.get('content-type')?.includes('text/csv') && csvText.includes(candidate.name), 'CSV interview export failed'); assertions += 1;
+    const xlsxResponse = await fetch(`${origin}/api/hr/reports/interviews.xlsx`, { headers: { Cookie: hrToken } });
+    const xlsxBytes = new Uint8Array(await xlsxResponse.arrayBuffer());
+    assert(xlsxResponse.status === 200 && xlsxResponse.headers.get('content-type')?.includes('spreadsheetml') && xlsxBytes[0] === 0x50 && xlsxBytes[1] === 0x4b, 'Excel interview export failed'); assertions += 1;
     await api(`/hr/interviews/${interview.id}`, { token: hrToken, method: 'DELETE', expected: 204 }); ids.interviews.length = 0;
     await api(`/hr/interviews/${interview.id}`, { token: hrToken, expected: 404 });
 

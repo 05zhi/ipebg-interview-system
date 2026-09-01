@@ -14,6 +14,7 @@
 - 面試流程支援待確認、已確認、已排程、已完成、未出席與已取消，並記錄輪次、主管評語及錄取結果
 - 儲存 Teams／Google Meet／其他會議連結，透過 SMTP 寄送邀請、ICS 行事曆附件與面試提醒
 - Dashboard 顯示今日、本週面試數及人員統計
+- Dashboard 顯示面試完成率、平均安排時間與各部門人數／場次，並可匯出 CSV 或 Excel 報表
 - bcrypt 密碼雜湊與可撤銷的 HttpOnly JWT Session
 - Bootstrap 5 響應式企業管理介面
 

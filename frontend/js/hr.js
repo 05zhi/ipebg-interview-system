@@ -134,12 +134,21 @@ function openDepartment(item) {
   document.querySelector('#department-edit-name').focus();
 }
 
+function setupReportDashboard() {
+  const dashboard = document.querySelector('[data-view="dashboard"]');
+  const heading = dashboard.querySelector('.mb-4');
+  heading.classList.add('d-flex', 'justify-content-between', 'align-items-start', 'gap-3', 'flex-wrap');
+  heading.insertAdjacentHTML('beforeend', '<div class="d-flex gap-2"><a class="btn btn-outline-secondary" href="/api/hr/reports/interviews.csv"><i class="bi bi-filetype-csv me-1"></i>匯出 CSV</a><a class="btn btn-primary" href="/api/hr/reports/interviews.xlsx"><i class="bi bi-file-earmark-excel me-1"></i>匯出 Excel</a></div>');
+  dashboard.insertAdjacentHTML('beforeend', '<div class="panel mt-4"><div class="p-4 border-bottom"><h2 class="h5 mb-0">各部門數量</h2></div><div class="table-responsive"><table class="table mb-0"><thead><tr><th>部門</th><th>面試者</th><th>主管</th><th>面試場次</th></tr></thead><tbody id="department-report-table"></tbody></table></div></div>');
+}
+
 async function loadDashboard() {
   try {
-    document.querySelector('#dashboard-stats').innerHTML = Array.from({ length: 4 }, () => '<div class="col-6 col-xl-3"><div class="panel dashboard-card p-4"><span class="skeleton-line w-50"></span><span class="skeleton-line skeleton-stat"></span></div></div>').join('');
+    document.querySelector('#dashboard-stats').innerHTML = Array.from({ length: 6 }, () => '<div class="col-6 col-xl-3"><div class="panel dashboard-card p-4"><span class="skeleton-line w-50"></span><span class="skeleton-line skeleton-stat"></span></div></div>').join('');
     document.querySelector('#upcoming-table').innerHTML = tableSkeleton(4, 3);
     const data = await API.request('/hr/dashboard');
-    const stats = [['今日面試', data.todayInterviews, 'bi-calendar-day'], ['本週面試', data.weekInterviews, 'bi-calendar-week'], ['主管總數', data.managerCount, 'bi-people'], ['面試者總數', data.candidateCount, 'bi-person-vcard']];
+    const schedulingTime = data.averageSchedulingHours >= 24 ? `${(data.averageSchedulingHours / 24).toFixed(1)} 天` : `${Number(data.averageSchedulingHours || 0).toFixed(1)} 小時`;
+    const stats = [['今日面試', data.todayInterviews, 'bi-calendar-day'], ['本週面試', data.weekInterviews, 'bi-calendar-week'], ['面試完成率', `${data.completionRate}%`, 'bi-check2-circle'], ['平均安排時間', schedulingTime, 'bi-stopwatch'], ['主管總數', data.managerCount, 'bi-people'], ['面試者總數', data.candidateCount, 'bi-person-vcard']];
     document.querySelector('#dashboard-stats').innerHTML = stats.map(([label, count, icon]) => `<div class="col-6 col-xl-3"><div class="panel dashboard-card p-3 p-md-4"><i class="bi ${icon} text-primary fs-4"></i><div class="small text-muted-app mt-2">${label}</div><div class="stat-value">${count ?? 0}</div></div></div>`).join('');
     const upcoming = [...data.upcoming].sort((a, b) => {
       const aCompleted = a.status === 'completed';
@@ -148,6 +157,7 @@ async function loadDashboard() {
       return new Date(a.starts_at) - new Date(b.starts_at);
     });
     document.querySelector('#upcoming-table').innerHTML = upcoming.map((item) => `<tr><td>${API.date(item.starts_at)}</td><td>${API.escape(item.candidate?.name)}</td><td>${item.interview_managers.map((entry) => API.escape(entry.manager?.name)).join('、')}</td><td>${statusBadge(item.status)}</td></tr>`).join('') || empty(4, '目前沒有即將進行的面試。');
+    document.querySelector('#department-report-table').innerHTML = data.departmentCounts.map((item) => `<tr><td><strong>${API.escape(item.name)}</strong></td><td>${item.candidate_count}</td><td>${item.manager_count}</td><td>${item.interview_count}</td></tr>`).join('') || empty(4, '尚無部門資料。');
   } catch (error) { notify(error.message, 'danger'); }
 }
 
@@ -585,4 +595,5 @@ renderCalendarDay = function renderCalendarDayWithInterviewLocks() {
 
 function updateTaiwanClock() { const clock = document.querySelector('#taiwan-now'); if (clock) clock.textContent = new Intl.DateTimeFormat('zh-TW', { timeZone: TAIWAN_TIMEZONE, month: '2-digit', day: '2-digit', weekday: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date()); }
 setupWorkflowFields();
+setupReportDashboard();
 if (hrUser) { if (location.hash === '#timezone') location.replace('/timezone/'); else { const start = new Date(); const end = new Date(); end.setDate(end.getDate() + 30); setValue('#match-from', start.toISOString().slice(0, 10)); setValue('#match-to', end.toISOString().slice(0, 10)); setupInterviewCalendar(); updateTaiwanClock(); setInterval(updateTaiwanClock, 60_000); loadDepartments(); loadProfile(); showSection(currentAppView() || location.hash.slice(1) || 'dashboard'); } }
