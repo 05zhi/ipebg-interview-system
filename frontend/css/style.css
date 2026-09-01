@@ -87,6 +87,7 @@ h1, h2, h3, h4, h5, h6 { color: var(--ink); font-weight: 650; letter-spacing: -.
 .public-nav .navbar-brand > span:last-child, .login-context .navbar-brand > span:last-child { display: grid; }
 .public-nav .navbar-brand small, .login-context .navbar-brand small { color: var(--muted); font-size: .65rem; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; }
 .public-main { width: min(calc(100% - 2rem), 1120px); margin: 0 auto; }
+.simple-home { display: flex; align-items: center; justify-content: center; min-height: calc(100vh - 84px); padding-block: 2rem; }
 .public-hero { display: grid; place-items: center; min-height: 68vh; padding: 8vh 0; text-align: center; }
 .public-hero h1 { margin-bottom: 1.35rem; font-size: clamp(3rem, 7vw, 5.8rem); font-weight: 680; line-height: 1.02; letter-spacing: -.065em; }
 .public-hero h1 span { color: var(--muted); }
